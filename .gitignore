@@ -12,6 +12,7 @@ nvngx_dlssnr.dll
 nvngx_dlss.dll
 nvngx_dlssd.dll
 nvngx_dlssg.dll
+nvngx.dll
 _nvngx.dll
 
 # Build products of the diagnostic tools
@@ -52,3 +53,7 @@ _nvngx.dll
 
 # Third-party upscaler shaders and the Khronos translation tools, fetched locally for --tupscale
 /tools/dlssnr_probe/upscalers/
+
+# Agent context and workspace customizations
+/.agents/
+

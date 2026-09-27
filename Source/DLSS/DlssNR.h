@@ -1,4 +1,4 @@
-﻿/*
+/*
  * CDlssNR -- DLSS 5 Neural Rendering (NGX feature 18).
  *
  * Self-contained: knows nothing about MPC Video Renderer. Never throws, never
@@ -44,46 +44,7 @@
 #include <deque>
 #include <map>
 #include "NGXTypes.h"
-
-// ---------------------------------------------------------- parameter store
-// The snippet exports PopulateParameters_Impl but no allocator -- that lives in
-// the driver core. This is the fallback for when the core will not hand us one.
-// Deliberately type-tolerant: a wrong vtable slot then yields a wrong value
-// rather than a bad write, which keeps the failure diagnosable.
-
-class CNgxParameterStore final : public NVSDK_NGX_Parameter
-{
-public:
-	enum class Kind : uint8_t { None, U64, F32, F64, U32, I32, Res11, Res12, Ptr };
-
-	void Set(const char* n, unsigned long long v) override;
-	void Set(const char* n, float v) override;
-	void Set(const char* n, double v) override;
-	void Set(const char* n, unsigned int v) override;
-	void Set(const char* n, int v) override;
-	void Set(const char* n, ID3D11Resource* v) override;
-	void Set(const char* n, ID3D12Resource* v) override;
-	void Set(const char* n, void* v) override;
-
-	NVSDK_NGX_Result Get(const char* n, unsigned long long* o) const override;
-	NVSDK_NGX_Result Get(const char* n, float* o) const override;
-	NVSDK_NGX_Result Get(const char* n, double* o) const override;
-	NVSDK_NGX_Result Get(const char* n, unsigned int* o) const override;
-	NVSDK_NGX_Result Get(const char* n, int* o) const override;
-	NVSDK_NGX_Result Get(const char* n, ID3D11Resource** o) const override;
-	NVSDK_NGX_Result Get(const char* n, ID3D12Resource** o) const override;
-	NVSDK_NGX_Result Get(const char* n, void** o) const override;
-
-	void Reset() override;
-	size_t Count() const { return m_map.size(); }
-
-private:
-	struct Slot { Kind kind = Kind::None; uint64_t u64 = 0; double f64 = 0; void* ptr = nullptr; };
-	Slot& Put(const char* n);
-	const Slot* Find(const char* n) const;
-
-	std::map<std::string, Slot> m_map;
-};
+#include "D3D12Interop.h"
 
 // --------------------------------------------------------------- the wrapper
 
@@ -188,14 +149,9 @@ private:
 	bool LoadCore();
 	bool LoadSnippet(const wchar_t* pConfiguredDllPath);
 	bool LoadShim();
-	bool CreateD3D12(ID3D11Device* pDevice);
 	bool InstallArchOverride();
 	void QueryRequirements();
 	void PushEvaluateParams(NVSDK_NGX_Parameter* p, const Params& s, bool bReset);
-	bool ExecuteAndWait();
-	void DrainGpu();
-	bool WaitForFence(ID3D12Fence* pFence, UINT64 value);
-	bool CheckDeviceLost();
 	void Log(const wchar_t* fmt, ...);
 
 	// guarded calls -- always via the shim when it is loaded
@@ -233,15 +189,8 @@ private:
 	bool                 m_bParamsFromCore = false;
 	NVSDK_NGX_Handle*    m_pFeature = nullptr;
 
-	// D3D11 side (borrowed from the renderer, addref'd)
-	CComPtr<ID3D11Device5>        m_pDev11;
-	CComPtr<ID3D11DeviceContext4> m_pCtx11;
-
-	// private D3D12 side
-	CComPtr<ID3D12Device>              m_pDev12;
-	CComPtr<ID3D12CommandQueue>        m_pQueue;
-	CComPtr<ID3D12CommandAllocator>    m_pAlloc;
-	CComPtr<ID3D12GraphicsCommandList> m_pList;
+	// Shared D3D12 bridge
+	CD3D12Bridge m_Bridge;
 
 	// shared textures: created on D3D11, opened here
 	CComPtr<ID3D12Resource> m_pTex12In;
@@ -263,18 +212,8 @@ private:
 	float m_fMVecScaleX = 1.0f;
 	float m_fMVecScaleY = 1.0f;
 
-	bool OpenOnD3D12(const wchar_t* which, ID3D11Texture2D* pTex11, CComPtr<ID3D12Resource>& out);
 	bool SetGuideSlot(GuideSlot& slot, const wchar_t* which, ID3D11Texture2D* pTex11);
 	void PushGuideParams(NVSDK_NGX_Parameter* p);
-
-	// Two shared fences, one per direction. Each pair is a single fence object
-	// seen from both devices.
-	CComPtr<ID3D11Fence> m_pFenceUp11;     // created on D3D11, signalled there
-	CComPtr<ID3D12Fence> m_pFenceUp12;     // the same fence, waited on by D3D12
-	CComPtr<ID3D12Fence> m_pFenceDown12;   // created on D3D12, signalled there
-	CComPtr<ID3D11Fence> m_pFenceDown11;   // the same fence, waited on by D3D11
-	UINT64 m_FenceValue = 0;
-	HANDLE m_hFenceEvent = nullptr;
 
 	std::wstring m_DllPath;
 	std::wstring m_DataPath;

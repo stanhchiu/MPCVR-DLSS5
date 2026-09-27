@@ -1,4 +1,4 @@
-﻿/*
+/*
  * (C) 2026 see Authors.txt
  *
  * This file is part of MPC-BE.
@@ -91,51 +91,7 @@ const wchar_t* NgxResultName(NVSDK_NGX_Result r)
 	return L"Unknown";
 }
 
-// ============================================================================
-// CNgxParameterStore
-// ============================================================================
 
-CNgxParameterStore::Slot& CNgxParameterStore::Put(const char* n)
-{
-	return m_map[n ? n : ""];
-}
-
-const CNgxParameterStore::Slot* CNgxParameterStore::Find(const char* n) const
-{
-	auto it = m_map.find(n ? n : "");
-	return (it == m_map.end()) ? nullptr : &it->second;
-}
-
-void CNgxParameterStore::Set(const char* n, unsigned long long v) { auto& s = Put(n); s.kind = Kind::U64;   s.u64 = v; s.f64 = (double)v; }
-void CNgxParameterStore::Set(const char* n, float v)              { auto& s = Put(n); s.kind = Kind::F32;   s.f64 = v; s.u64 = (uint64_t)v; }
-void CNgxParameterStore::Set(const char* n, double v)             { auto& s = Put(n); s.kind = Kind::F64;   s.f64 = v; s.u64 = (uint64_t)v; }
-void CNgxParameterStore::Set(const char* n, unsigned int v)       { auto& s = Put(n); s.kind = Kind::U32;   s.u64 = v; s.f64 = (double)v; }
-void CNgxParameterStore::Set(const char* n, int v)                { auto& s = Put(n); s.kind = Kind::I32;   s.u64 = (uint64_t)(int64_t)v; s.f64 = (double)v; }
-void CNgxParameterStore::Set(const char* n, ID3D11Resource* v)    { auto& s = Put(n); s.kind = Kind::Res11; s.ptr = v; }
-void CNgxParameterStore::Set(const char* n, ID3D12Resource* v)    { auto& s = Put(n); s.kind = Kind::Res12; s.ptr = v; }
-void CNgxParameterStore::Set(const char* n, void* v)              { auto& s = Put(n); s.kind = Kind::Ptr;   s.ptr = v; }
-
-// Every Get null-checks its out-pointer, so a mislaid vtable slot produces a
-// wrong value rather than memory corruption.
-#define STORE_GET(expr)                                        \
-	if (!o) return NGX_Result_FAIL_InvalidParameter;           \
-	const Slot* v = Find(n);                                   \
-	if (!v) return NGX_Result_FAIL_FeatureNotFound;            \
-	*o = (expr);                                               \
-	return NGX_Result_Success;
-
-NVSDK_NGX_Result CNgxParameterStore::Get(const char* n, unsigned long long* o) const { STORE_GET(v->u64) }
-NVSDK_NGX_Result CNgxParameterStore::Get(const char* n, float* o) const              { STORE_GET((float)v->f64) }
-NVSDK_NGX_Result CNgxParameterStore::Get(const char* n, double* o) const             { STORE_GET(v->f64) }
-NVSDK_NGX_Result CNgxParameterStore::Get(const char* n, unsigned int* o) const       { STORE_GET((unsigned int)v->u64) }
-NVSDK_NGX_Result CNgxParameterStore::Get(const char* n, int* o) const                { STORE_GET((int)v->u64) }
-NVSDK_NGX_Result CNgxParameterStore::Get(const char* n, ID3D11Resource** o) const    { STORE_GET((ID3D11Resource*)v->ptr) }
-NVSDK_NGX_Result CNgxParameterStore::Get(const char* n, ID3D12Resource** o) const    { STORE_GET((ID3D12Resource*)v->ptr) }
-NVSDK_NGX_Result CNgxParameterStore::Get(const char* n, void** o) const              { STORE_GET(v->ptr) }
-
-#undef STORE_GET
-
-void CNgxParameterStore::Reset() { m_map.clear(); }
 
 // ============================================================================
 // Architecture override
@@ -405,25 +361,25 @@ NVSDK_NGX_Result CDlssNR::CallInit()
 {
 	if (m_bUseShim && m_pfnShimInit) {
 		return m_pfnShimInit((void*)m_pfnInit, NGX_DLSSNR_APPID, m_DataPath.c_str(),
-		                     m_pDev12, m_SdkVersion, nullptr);
+		                     m_Bridge.GetDev12(), m_SdkVersion, nullptr);
 	}
-	return m_pfnInit(NGX_DLSSNR_APPID, m_DataPath.c_str(), m_pDev12, m_SdkVersion, nullptr);
+	return m_pfnInit(NGX_DLSSNR_APPID, m_DataPath.c_str(), m_Bridge.GetDev12(), m_SdkVersion, nullptr);
 }
 
 NVSDK_NGX_Result CDlssNR::CallCreate(NVSDK_NGX_Parameter* p, NVSDK_NGX_Handle** out)
 {
 	if (m_bUseShim && m_pfnShimCreate) {
-		return m_pfnShimCreate((void*)m_pfnCreate, m_pList, NGX_FEATURE_DLSSNR, p, (void**)out);
+		return m_pfnShimCreate((void*)m_pfnCreate, m_Bridge.GetList(), NGX_FEATURE_DLSSNR, p, (void**)out);
 	}
-	return m_pfnCreate(m_pList, NGX_FEATURE_DLSSNR, p, out);
+	return m_pfnCreate(m_Bridge.GetList(), NGX_FEATURE_DLSSNR, p, out);
 }
 
 NVSDK_NGX_Result CDlssNR::CallEvaluate(const NVSDK_NGX_Parameter* p)
 {
 	if (m_bUseShim && m_pfnShimEval) {
-		return m_pfnShimEval((void*)m_pfnEvaluate, m_pList, m_pFeature, p, nullptr);
+		return m_pfnShimEval((void*)m_pfnEvaluate, m_Bridge.GetList(), m_pFeature, p, nullptr);
 	}
-	return m_pfnEvaluate(m_pList, m_pFeature, p, nullptr);
+	return m_pfnEvaluate(m_Bridge.GetList(), m_pFeature, p, nullptr);
 }
 
 NVSDK_NGX_Result CDlssNR::CallRelease(NVSDK_NGX_Handle* h)
@@ -439,94 +395,13 @@ NVSDK_NGX_Result CDlssNR::CallRelease(NVSDK_NGX_Handle* h)
 
 NVSDK_NGX_Result CDlssNR::CallShutdown1()
 {
-	if (!m_pfnShutdown1 || !m_pDev12) {
+	if (!m_pfnShutdown1 || !m_Bridge.GetDev12()) {
 		return NGX_Result_FAIL_NotImplemented;
 	}
 	if (m_bUseShim && m_pfnShimShutdown) {
-		return m_pfnShimShutdown((void*)m_pfnShutdown1, m_pDev12);
+		return m_pfnShimShutdown((void*)m_pfnShutdown1, m_Bridge.GetDev12());
 	}
-	return m_pfnShutdown1(m_pDev12);
-}
-
-// ============================================================================
-// The private D3D12 device
-// ============================================================================
-
-bool CDlssNR::CreateD3D12(ID3D11Device* pDevice)
-{
-	// Same physical adapter as the renderer, matched by LUID -- a shared handle
-	// cannot cross adapters.
-	CComPtr<IDXGIDevice> pDXGIDevice;
-	CComPtr<IDXGIAdapter> pAdapter;
-	if (FAILED(pDevice->QueryInterface(IID_PPV_ARGS(&pDXGIDevice)))
-			|| FAILED(pDXGIDevice->GetAdapter(&pAdapter))) {
-		Log(L"could not reach the renderer's DXGI adapter");
-		return false;
-	}
-	DXGI_ADAPTER_DESC desc = {};
-	pAdapter->GetDesc(&desc);
-
-	CComPtr<IDXGIFactory4> pFactory;
-	if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&pFactory)))) {
-		Log(L"CreateDXGIFactory1 failed");
-		return false;
-	}
-	CComPtr<IDXGIAdapter1> pAdapter1;
-	if (FAILED(pFactory->EnumAdapterByLuid(desc.AdapterLuid, IID_PPV_ARGS(&pAdapter1)))) {
-		Log(L"EnumAdapterByLuid failed");
-		return false;
-	}
-
-	HRESULT hr = D3D12CreateDevice(pAdapter1, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&m_pDev12));
-	if (FAILED(hr)) {
-		Log(L"D3D12CreateDevice failed 0x%08X", hr);
-		return false;
-	}
-
-	D3D12_COMMAND_QUEUE_DESC qd = {};
-	qd.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-	if (FAILED(m_pDev12->CreateCommandQueue(&qd, IID_PPV_ARGS(&m_pQueue)))
-			|| FAILED(m_pDev12->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT, IID_PPV_ARGS(&m_pAlloc)))
-			|| FAILED(m_pDev12->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, m_pAlloc, nullptr, IID_PPV_ARGS(&m_pList)))) {
-		Log(L"could not build the D3D12 command objects");
-		return false;
-	}
-
-	// Two shared fences, one per direction.
-	if (FAILED(m_pDev11->CreateFence(0, D3D11_FENCE_FLAG_SHARED, IID_PPV_ARGS(&m_pFenceUp11)))) {
-		Log(L"ID3D11Device5::CreateFence failed");
-		return false;
-	}
-	HANDLE hUp = nullptr;
-	if (FAILED(m_pFenceUp11->CreateSharedHandle(nullptr, GENERIC_ALL, nullptr, &hUp)) || !hUp) {
-		Log(L"could not share the D3D11 fence");
-		return false;
-	}
-	hr = m_pDev12->OpenSharedHandle(hUp, IID_PPV_ARGS(&m_pFenceUp12));
-	CloseHandle(hUp);
-	if (FAILED(hr)) {
-		Log(L"OpenSharedHandle(fence) failed 0x%08X", hr);
-		return false;
-	}
-
-	if (FAILED(m_pDev12->CreateFence(0, D3D12_FENCE_FLAG_SHARED, IID_PPV_ARGS(&m_pFenceDown12)))) {
-		Log(L"ID3D12Device::CreateFence failed");
-		return false;
-	}
-	HANDLE hDown = nullptr;
-	if (FAILED(m_pDev12->CreateSharedHandle(m_pFenceDown12, nullptr, GENERIC_ALL, nullptr, &hDown)) || !hDown) {
-		Log(L"could not share the D3D12 fence");
-		return false;
-	}
-	hr = m_pDev11->OpenSharedFence(hDown, IID_PPV_ARGS(&m_pFenceDown11));
-	CloseHandle(hDown);
-	if (FAILED(hr)) {
-		Log(L"OpenSharedFence failed 0x%08X", hr);
-		return false;
-	}
-
-	Log(L"private D3D12 device on %s", desc.Description);
-	return true;
+	return m_pfnShutdown1(m_Bridge.GetDev12());
 }
 
 // ============================================================================
@@ -537,13 +412,13 @@ void CDlssNR::QueryRequirements()
 {
 	// Advisory. With the architecture override active this reports SUPPORTED;
 	// without it, AdapterUnsupported. Either way it is only ever displayed.
-	if (!m_pfnGetReq || !m_pDev11) {
+	if (!m_pfnGetReq || !m_Bridge.GetDev11()) {
 		return;
 	}
 
 	CComPtr<IDXGIDevice> pDXGIDevice;
 	CComPtr<IDXGIAdapter> pAdapter;
-	if (FAILED(m_pDev11->QueryInterface(IID_PPV_ARGS(&pDXGIDevice)))
+	if (FAILED(m_Bridge.GetDev11()->QueryInterface(IID_PPV_ARGS(&pDXGIDevice)))
 			|| FAILED(pDXGIDevice->GetAdapter(&pAdapter))) {
 		return;
 	}
@@ -583,20 +458,10 @@ bool CDlssNR::Init(ID3D11Device* pDevice, const wchar_t* pConfiguredDllPath, boo
 	m_LastResult = 0;
 	m_bArchOverride = bArchOverride;
 
-	// Fences need the 11.4 interfaces.
-	if (FAILED(pDevice->QueryInterface(IID_PPV_ARGS(&m_pDev11)))) {
-		Log(L"ID3D11Device5 unavailable; shared fences need Windows 10 1703+");
+	if (!m_Bridge.Init(pDevice)) {
+		Log(L"CD3D12Bridge initialization failed");
 		m_State = State::NoD3D12;
 		return false;
-	}
-	{
-		CComPtr<ID3D11DeviceContext> pCtx;
-		pDevice->GetImmediateContext(&pCtx);
-		if (!pCtx || FAILED(pCtx->QueryInterface(IID_PPV_ARGS(&m_pCtx11)))) {
-			Log(L"ID3D11DeviceContext4 unavailable");
-			m_State = State::NoD3D12;
-			return false;
-		}
 	}
 
 	// NGX writes its logs and model cache here.
@@ -655,12 +520,6 @@ bool CDlssNR::Init(ID3D11Device* pDevice, const wchar_t* pConfiguredDllPath, boo
 		return false;
 	}
 
-	if (!CreateD3D12(pDevice)) {
-		m_State = State::NoD3D12;
-		Shutdown();
-		return false;
-	}
-
 	// The driver core first, on the same SDK version.
 	NVSDK_NGX_FeatureCommonInfo fci = {};
 	const wchar_t* pathList[1] = { m_SnippetDir.c_str() };
@@ -672,7 +531,7 @@ bool CDlssNR::Init(ID3D11Device* pDevice, const wchar_t* pConfiguredDllPath, boo
 			const wchar_t*, ID3D12Device*, const void*, uint32_t);
 		if (auto pfnCoreInit = (PFN_CoreInit12)GetProcAddress(m_hCore, "NVSDK_NGX_D3D12_Init")) {
 			const NVSDK_NGX_Result rc = pfnCoreInit(NGX_DLSSNR_APPID, m_DataPath.c_str(),
-			                                        m_pDev12, &fci, m_SdkVersion);
+			                                        m_Bridge.GetDev12(), &fci, m_SdkVersion);
 			Log(L"core init: 0x%08X %s", rc, NgxResultName(rc));
 		}
 		if (m_pfnCoreAlloc) {
@@ -712,7 +571,7 @@ bool CDlssNR::Init(ID3D11Device* pDevice, const wchar_t* pConfiguredDllPath, boo
 
 void CDlssNR::Shutdown()
 {
-	DrainGpu();
+	m_Bridge.DrainGpu();
 	ReleaseFeature();
 
 	if (m_bInitialised) {
@@ -736,16 +595,8 @@ void CDlssNR::Shutdown()
 	m_GuideMask = {};
 	m_fMVecScaleX = 1.0f;
 	m_fMVecScaleY = 1.0f;
-	m_pFenceUp11.Release();
-	m_pFenceUp12.Release();
-	m_pFenceDown12.Release();
-	m_pFenceDown11.Release();
-	m_pList.Release();
-	m_pAlloc.Release();
-	m_pQueue.Release();
-	m_pDev12.Release();
-	m_pCtx11.Release();
-	m_pDev11.Release();
+
+	m_Bridge.Shutdown();
 
 	// The snippet is a 165 MB module holding ~500 MB of GPU allocations; do not
 	// keep it mapped once the feature is off.
@@ -759,13 +610,7 @@ void CDlssNR::Shutdown()
 	m_pfnShimInit = nullptr; m_pfnShimPopulate = nullptr; m_pfnShimCreate = nullptr;
 	m_pfnShimEval = nullptr; m_pfnShimRelease = nullptr; m_pfnShimShutdown = nullptr;
 
-	if (m_hFenceEvent) {
-		CloseHandle(m_hFenceEvent);
-		m_hFenceEvent = nullptr;
-	}
-
 	m_bUseShim = false;
-	m_FenceValue = 0;
 
 	// The architecture hook stays installed for the process: MinHook removal
 	// while another thread is inside the detour is not worth the risk, and the
@@ -782,137 +627,6 @@ void CDlssNR::Shutdown()
 // Feature and evaluation
 // ============================================================================
 
-// Release anything the other device may still be parked on, then let the queue
-// drain. Without this, tearing the D3D12 side down while the renderer's context
-// still holds a GPU-side Wait on a fence nobody will ever signal again stops the
-// D3D11 timeline dead: the picture freezes while audio, on its own path, keeps
-// playing. That is exactly what toggling the feature during playback did.
-void CDlssNR::DrainGpu()
-{
-	// Nothing may still be reading or writing the shared textures when they are
-	// released. Everything is CPU-synchronous now, so this only has to cover
-	// work submitted but not yet retired.
-	if (m_pQueue && m_pDev12 && SUCCEEDED(m_pDev12->GetDeviceRemovedReason())) {
-		m_FenceValue++;
-		if (m_pFenceDown12 && SUCCEEDED(m_pQueue->Signal(m_pFenceDown12, m_FenceValue))) {
-			WaitForFence(m_pFenceDown12, m_FenceValue);
-		}
-	}
-	if (m_pCtx11) {
-		m_pCtx11->Flush();
-	}
-}
-
-bool CDlssNR::ExecuteAndWait()
-{
-	if (FAILED(m_pList->Close())) {
-		return false;
-	}
-	ID3D12CommandList* lists[] = { m_pList };
-	m_pQueue->ExecuteCommandLists(1, lists);
-
-	// Wait on the CPU, not on the D3D11 timeline. ID3D12CommandAllocator::Reset
-	// is illegal while the GPU is still executing commands recorded from it, and
-	// a GPU-side wait does not tell us when that is -- doing it that way removed
-	// the device (DXGI_ERROR_DEVICE_REMOVED, 0x887A0005) and everything else
-	// followed from that. One stall per frame is a fair price for a pass that
-	// already costs milliseconds.
-	m_FenceValue++;
-	if (FAILED(m_pQueue->Signal(m_pFenceDown12, m_FenceValue))) {
-		return false;
-	}
-	if (!WaitForFence(m_pFenceDown12, m_FenceValue)) {
-		return false;
-	}
-
-	if (FAILED(m_pAlloc->Reset()) || FAILED(m_pList->Reset(m_pAlloc, nullptr))) {
-		return false;
-	}
-	return true;
-}
-
-// Blocks until the fence reaches the value, or the device dies.
-bool CDlssNR::WaitForFence(ID3D12Fence* pFence, UINT64 value)
-{
-	if (!pFence) {
-		return false;
-	}
-	if (pFence->GetCompletedValue() >= value) {
-		return true;
-	}
-	if (!m_hFenceEvent) {
-		m_hFenceEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-		if (!m_hFenceEvent) {
-			return false;
-		}
-	}
-	if (FAILED(pFence->SetEventOnCompletion(value, m_hFenceEvent))) {
-		return false;
-	}
-	if (WaitForSingleObject(m_hFenceEvent, 2000) != WAIT_OBJECT_0) {
-		Log(L"GPU wait timed out");
-		return false;
-	}
-	return true;
-}
-
-bool CDlssNR::CheckDeviceLost()
-{
-	if (!m_pDev12) {
-		return true;
-	}
-	const HRESULT hr = m_pDev12->GetDeviceRemovedReason();
-	if (SUCCEEDED(hr)) {
-		return false;
-	}
-	m_DetailError = std::format(L"Direct3D 12 device removed (0x{:08X})", (unsigned)hr);
-	Log(L"%s", m_DetailError.c_str());
-	m_State = State::DeviceLost;
-	return true;
-}
-
-// Opens a D3D11 texture on the private D3D12 device through an NT handle. Each
-// step names itself on failure: "could not share textures" on its own was
-// useless to diagnose.
-bool CDlssNR::OpenOnD3D12(const wchar_t* which, ID3D11Texture2D* pTex11, CComPtr<ID3D12Resource>& out)
-{
-	out.Release();
-
-	D3D11_TEXTURE2D_DESC td = {};
-	pTex11->GetDesc(&td);
-	if (!(td.MiscFlags & D3D11_RESOURCE_MISC_SHARED_NTHANDLE)) {
-		m_DetailError = std::format(L"{} texture has no share handle (misc 0x{:X})", which, td.MiscFlags);
-		Log(L"%s", m_DetailError.c_str());
-		return false;
-	}
-
-	CComPtr<IDXGIResource1> pRes1;
-	HRESULT hr = pTex11->QueryInterface(IID_PPV_ARGS(&pRes1));
-	if (FAILED(hr)) {
-		m_DetailError = std::format(L"{}: no IDXGIResource1 (0x{:08X})", which, (unsigned)hr);
-		Log(L"%s", m_DetailError.c_str());
-		return false;
-	}
-
-	HANDLE h11 = nullptr;
-	hr = pRes1->CreateSharedHandle(nullptr,
-			DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE, nullptr, &h11);
-	if (FAILED(hr) || !h11) {
-		m_DetailError = std::format(L"{}: CreateSharedHandle failed (0x{:08X})", which, (unsigned)hr);
-		Log(L"%s", m_DetailError.c_str());
-		return false;
-	}
-
-	hr = m_pDev12->OpenSharedHandle(h11, IID_PPV_ARGS(&out));
-	CloseHandle(h11);
-	if (FAILED(hr)) {
-		m_DetailError = std::format(L"{}: OpenSharedHandle failed (0x{:08X})", which, (unsigned)hr);
-		Log(L"%s", m_DetailError.c_str());
-		return false;
-	}
-	return true;
-}
-
 bool CDlssNR::SetGuideSlot(GuideSlot& slot, const wchar_t* which, ID3D11Texture2D* pTex11)
 {
 	if (!pTex11) {
@@ -924,7 +638,8 @@ bool CDlssNR::SetGuideSlot(GuideSlot& slot, const wchar_t* which, ID3D11Texture2
 	}
 
 	slot = {};
-	if (!OpenOnD3D12(which, pTex11, slot.p12)) {
+	if (!m_Bridge.OpenOnD3D12(which, pTex11, slot.p12, m_DetailError)) {
+		Log(L"%s", m_DetailError.c_str());
 		return false;
 	}
 	D3D11_TEXTURE2D_DESC td = {};
@@ -939,7 +654,7 @@ bool CDlssNR::SetGuideSlot(GuideSlot& slot, const wchar_t* which, ID3D11Texture2
 // parameter block straight away, so a CreateFeature that follows sees them too.
 bool CDlssNR::SetGuides(const Guides& g)
 {
-	if (!m_pDev12) {
+	if (!m_Bridge.IsReady()) {
 		return false;
 	}
 
@@ -994,11 +709,13 @@ bool CDlssNR::CreateFeature(ID3D11Texture2D* pShared11In, ID3D11Texture2D* pShar
 	if (MatchesFeature(w, h, p.iPreset) && MatchesTextures(pShared11In, pShared11Out)) {
 		return true;
 	}
-	if (CheckDeviceLost()) {
+	if (m_Bridge.CheckDeviceLost(m_DetailError)) {
+		Log(L"%s", m_DetailError.c_str());
+		m_State = State::DeviceLost;
 		return false;
 	}
 
-	DrainGpu();
+	m_Bridge.DrainGpu();
 	ReleaseFeature();
 	m_pTex12In.Release();
 	m_pTex12Out.Release();
@@ -1006,7 +723,9 @@ bool CDlssNR::CreateFeature(ID3D11Texture2D* pShared11In, ID3D11Texture2D* pShar
 	// Open the renderer's textures on the D3D12 side. They were created with
 	// Tex2D_DefaultShaderRTargetUAVShared, so they carry an NT share handle and
 	// the UAV bind flag NGX needs for its output.
-	if (!OpenOnD3D12(L"input", pShared11In, m_pTex12In) || !OpenOnD3D12(L"output", pShared11Out, m_pTex12Out)) {
+	if (!m_Bridge.OpenOnD3D12(L"input", pShared11In, m_pTex12In, m_DetailError) ||
+	    !m_Bridge.OpenOnD3D12(L"output", pShared11Out, m_pTex12Out, m_DetailError)) {
+		Log(L"share failed: %s", m_DetailError.c_str());
 		m_State = State::ShareFailed;
 		return false;
 	}
@@ -1030,7 +749,7 @@ bool CDlssNR::CreateFeature(ID3D11Texture2D* pShared11In, ID3D11Texture2D* pShar
 	}
 
 	// CreateFeature records upload work on the list; it has to run.
-	if (!ExecuteAndWait()) {
+	if (!m_Bridge.ExecuteAndWait()) {
 		Log(L"could not submit the CreateFeature work");
 		ReleaseFeature();
 		m_State = State::FeatureCreateFailed;
@@ -1104,7 +823,9 @@ bool CDlssNR::Evaluate(const Params& p)
 		return false;
 	}
 
-	if (CheckDeviceLost()) {
+	if (m_Bridge.CheckDeviceLost(m_DetailError)) {
+		Log(L"%s", m_DetailError.c_str());
+		m_State = State::DeviceLost;
 		return false;
 	}
 
@@ -1112,14 +833,8 @@ bool CDlssNR::Evaluate(const Params& p)
 	QueryPerformanceFrequency(&qpf);
 	QueryPerformanceCounter(&t0);
 
-	// The renderer has just written the input texture. Make that work reach the
-	// GPU and finish before the other device reads it -- again on the CPU, so
-	// there is exactly one ordering rule to get right instead of two timelines
-	// signalling each other.
-	m_FenceValue++;
-	m_pCtx11->Signal(m_pFenceUp11, m_FenceValue);
-	m_pCtx11->Flush();
-	if (!WaitForFence(m_pFenceUp12, m_FenceValue)) {
+	// Synchronize input write from D3D11 to D3D12
+	if (!m_Bridge.SyncD3D11ToD3D12()) {
 		Log(L"input never became ready");
 		return false;
 	}
@@ -1137,11 +852,11 @@ bool CDlssNR::Evaluate(const Params& p)
 	if (NGX_FAILED(r)) {
 		m_State = State::EvaluateFailed;
 		Log(L"Evaluate failed: 0x%08X %s", r, NgxResultName(r));
-		ExecuteAndWait();   // keep the list in a usable state
+		m_Bridge.ExecuteAndWait();   // keep the list in a usable state
 		return false;
 	}
 
-	if (!ExecuteAndWait()) {
+	if (!m_Bridge.ExecuteAndWait()) {
 		Log(L"could not submit the Evaluate work");
 		return false;
 	}

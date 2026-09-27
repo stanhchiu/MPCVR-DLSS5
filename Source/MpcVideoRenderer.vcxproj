@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
@@ -77,6 +77,7 @@
     <ClCompile Include="DLSS\DlssPropPage.cpp" />
     <ClCompile Include="DLSS\DlssStabilizer.cpp" />
     <ClCompile Include="DLSS\DlssSR.cpp" />
+    <ClCompile Include="DLSS\D3D12Interop.cpp" />
     <ClCompile Include="DLSS\DlssTiming.cpp" />
     <ClCompile Include="Upscale\MpvShader.cpp" />
     <ClCompile Include="DX11VideoProcessor.cpp" />
@@ -123,6 +124,7 @@
     <ClInclude Include="DLSS\NvOF\nvOpticalFlowCommon.h" />
     <ClInclude Include="DLSS\NvOF\nvOpticalFlowD3D11.h" />
     <ClInclude Include="DLSS\DlssSR.h" />
+    <ClInclude Include="DLSS\D3D12Interop.h" />
     <ClInclude Include="DLSS\DlssTiming.h" />
     <ClInclude Include="Upscale\MpvShader.h" />
     <ClInclude Include="Upscale\MpvShaderTables.h" />
