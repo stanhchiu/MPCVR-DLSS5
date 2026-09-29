@@ -470,7 +470,7 @@ INT_PTR CVRMainPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
 		m_pVideoRenderer->GetSettings(current);
 		const bool bActive = m_pVideoRenderer->GetActive();
 		const unsigned uVPUse = bActive ? m_pVideoRenderer->GetVideoProcessorUse() : 0;
-		if (current.bDlssNR != m_SetsPP.bDlssNR || current.bDlssSR != m_SetsPP.bDlssSR
+		if (current.bDlssNR != m_SetsPP.bDlssNR || current.bDlssSR != m_SetsPP.bDlssSR || current.bDlssFG != m_SetsPP.bDlssFG
 				|| bActive != m_bRendererActive || uVPUse != m_uVPUse || uMsg == WM_SHOWWINDOW) {
 			CopyDlssSettings(m_SetsPP, current);
 			m_bRendererActive = bActive;

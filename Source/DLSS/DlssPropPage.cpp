@@ -125,6 +125,9 @@ void CVRDlssPPage::SetControls()
 	Combo_SelectByItemData(m_hWnd, IDC_COMBO15, m_SetsPP.iDlssSRPreset);
 	SetDlgItemTextW(IDC_EDIT9, m_SetsPP.szDlssSRDllPath);
 
+	CheckDlgButton(IDC_CHECK28, m_SetsPP.bDlssFG ? BST_CHECKED : BST_UNCHECKED);
+	Combo_SelectByItemData(m_hWnd, IDC_COMBO16, m_SetsPP.iDlssFGMultiplier);
+	SetDlgItemTextW(IDC_EDIT10, m_SetsPP.szDlssFGDllPath);
 }
 
 void CVRDlssPPage::EnableControls()
@@ -156,6 +159,13 @@ void CVRDlssPPage::EnableControls()
 	}
 	for (const int id : { IDC_STATIC36, IDC_COMBO15 }) {
 		GetDlgItem(id).EnableWindow(bD3D11 && m_SetsPP.bDlssSR);
+	}
+
+	for (const int id : { IDC_CHECK28, IDC_STATIC43, IDC_EDIT10, IDC_BUTTON5 }) {
+		GetDlgItem(id).EnableWindow(bD3D11);
+	}
+	for (const int id : { IDC_STATIC42, IDC_COMBO16 }) {
+		GetDlgItem(id).EnableWindow(bD3D11 && m_SetsPP.bDlssFG);
 	}
 }
 
@@ -206,6 +216,10 @@ HRESULT CVRDlssPPage::OnActivate()
 		Combo_AddStringData(m_hWnd, IDC_COMBO15, std::format(L"Preset {}", (wchar_t)(L'J' + preset - DLSSSR_PRESET_J)).c_str(), preset);
 	}
 
+	Combo_AddStringData(m_hWnd, IDC_COMBO16, L"2x (1 generated frame)", 2);
+	Combo_AddStringData(m_hWnd, IDC_COMBO16, L"3x (2 generated frames)", 3);
+	Combo_AddStringData(m_hWnd, IDC_COMBO16, L"4x (3 generated frames)", 4);
+
 	// Keys that players rarely bind to anything destructive. The hook swallows
 	// whichever one is chosen, so it must not be something the player needs.
 	static const struct { const wchar_t* name; int vk; } dlssKeys[] = {
@@ -235,6 +249,7 @@ HRESULT CVRDlssPPage::OnActivate()
 		const struct { const char* field; int id; } statuses[] = {
 			{ "dlssStatus",   IDC_STATIC28 },
 			{ "dlssSRStatus", IDC_STATIC38 },
+			{ "dlssFGStatus", IDC_STATIC44 },
 		};
 		for (const auto& s : statuses) {
 			std::wstring status;
@@ -352,6 +367,7 @@ INT_PTR CVRDlssPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
 				{ IDC_CHECK23, &m_SetsPP.bDlssNRAfterUpscale,  false },
 				{ IDC_CHECK24, &m_SetsPP.bDlssNRMotionVectors, false },
 				{ IDC_CHECK25, &m_SetsPP.bDlssSR,              true  },
+				{ IDC_CHECK28, &m_SetsPP.bDlssFG,              true  },
 			};
 			for (const auto& c : checks) {
 				if (nID == c.id) {
@@ -364,9 +380,10 @@ INT_PTR CVRDlssPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
 				}
 			}
 
-			if (nID == IDC_BUTTON2 || nID == IDC_BUTTON4) {
+			if (nID == IDC_BUTTON2 || nID == IDC_BUTTON4 || nID == IDC_BUTTON5) {
 				const bool bSR = (nID == IDC_BUTTON4);
-				wchar_t* target = bSR ? m_SetsPP.szDlssSRDllPath : m_SetsPP.szDlssNRDllPath;
+				const bool bFG = (nID == IDC_BUTTON5);
+				wchar_t* target = bSR ? m_SetsPP.szDlssSRDllPath : (bFG ? m_SetsPP.szDlssFGDllPath : m_SetsPP.szDlssNRDllPath);
 				wchar_t path[MAX_PATH] = {};
 				wcscpy_s(path, target);
 
@@ -375,15 +392,16 @@ INT_PTR CVRDlssPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
 				ofn.hwndOwner   = m_hWnd;
 				ofn.lpstrFilter = bSR
 					? L"DLSS Super Resolution\0nvngx_dlss.dll\0DLL files (*.dll)\0*.dll\0All files (*.*)\0*.*\0\0"
-					: L"NGX snippet\0nvngx_dlssnr.dll;nvngx*.dll\0DLL files (*.dll)\0*.dll\0All files (*.*)\0*.*\0\0";
+					: (bFG ? L"DLSS Frame Generation\0nvngx_dlssg.dll\0DLL files (*.dll)\0*.dll\0All files (*.*)\0*.*\0\0"
+						   : L"NGX snippet\0nvngx_dlssnr.dll;nvngx*.dll\0DLL files (*.dll)\0*.dll\0All files (*.*)\0*.*\0\0");
 				ofn.lpstrFile   = path;
 				ofn.nMaxFile    = std::size(path);
-				ofn.lpstrTitle  = bSR ? L"Select nvngx_dlss.dll" : L"Select nvngx_dlssnr.dll";
+				ofn.lpstrTitle  = bSR ? L"Select nvngx_dlss.dll" : (bFG ? L"Select nvngx_dlssg.dll" : L"Select nvngx_dlssnr.dll");
 				ofn.Flags       = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
 
 				if (GetOpenFileNameW(&ofn)) {
 					wcscpy_s(target, MAX_PATH, path);
-					SetDlgItemTextW(bSR ? IDC_EDIT9 : IDC_EDIT7, target);
+					SetDlgItemTextW(bSR ? IDC_EDIT9 : (bFG ? IDC_EDIT10 : IDC_EDIT7), target);
 					SetDirty();
 				}
 				return (LRESULT)1;
@@ -398,6 +416,8 @@ INT_PTR CVRDlssPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
 				wcscpy_s(defaults.szDlssNRDllPath, m_SetsPP.szDlssNRDllPath);
 				defaults.bDlssSR = m_SetsPP.bDlssSR;
 				wcscpy_s(defaults.szDlssSRDllPath, m_SetsPP.szDlssSRDllPath);
+				defaults.bDlssFG = m_SetsPP.bDlssFG;
+				wcscpy_s(defaults.szDlssFGDllPath, m_SetsPP.szDlssFGDllPath);
 				CopyDlssSettings(m_SetsPP, defaults);
 				SetControls();
 				EnableControls();
@@ -406,9 +426,9 @@ INT_PTR CVRDlssPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
 			}
 		}
 
-		if (action == EN_CHANGE && (nID == IDC_EDIT7 || nID == IDC_EDIT9)) {
+		if (action == EN_CHANGE && (nID == IDC_EDIT7 || nID == IDC_EDIT9 || nID == IDC_EDIT10)) {
 			// SetControls fills the box too; only a real edit makes the page dirty.
-			wchar_t* target = (nID == IDC_EDIT9) ? m_SetsPP.szDlssSRDllPath : m_SetsPP.szDlssNRDllPath;
+			wchar_t* target = (nID == IDC_EDIT9) ? m_SetsPP.szDlssSRDllPath : (nID == IDC_EDIT10 ? m_SetsPP.szDlssFGDllPath : m_SetsPP.szDlssNRDllPath);
 			wchar_t path[MAX_PATH] = {};
 			GetDlgItemTextW(nID, path, (int)std::size(path));
 			if (wcscmp(path, target)) {
@@ -425,6 +445,7 @@ INT_PTR CVRDlssPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
 				{ IDC_COMBO13, &m_SetsPP.iDlssNRToggleKey },
 				{ IDC_COMBO14, &m_SetsPP.iDlssNRMotion },
 				{ IDC_COMBO15, &m_SetsPP.iDlssSRPreset },
+				{ IDC_COMBO16, &m_SetsPP.iDlssFGMultiplier },
 			};
 			for (const auto& c : combos) {
 				if (nID == c.id) {
@@ -474,6 +495,8 @@ HRESULT CVRDlssPPage::OnApplyChanges()
 	m_SetsPP.szDlssNRDllPath[std::size(m_SetsPP.szDlssNRDllPath) - 1] = L'\0';
 	GetDlgItemTextW(IDC_EDIT9, m_SetsPP.szDlssSRDllPath, (int)std::size(m_SetsPP.szDlssSRDllPath));
 	m_SetsPP.szDlssSRDllPath[std::size(m_SetsPP.szDlssSRDllPath) - 1] = L'\0';
+	GetDlgItemTextW(IDC_EDIT10, m_SetsPP.szDlssFGDllPath, (int)std::size(m_SetsPP.szDlssFGDllPath));
+	m_SetsPP.szDlssFGDllPath[std::size(m_SetsPP.szDlssFGDllPath) - 1] = L'\0';
 
 	// Start from what the renderer holds now and take only what was changed
 	// here, so neither the main page nor the toggle key gets overwritten.
@@ -498,12 +521,17 @@ HRESULT CVRDlssPPage::OnApplyChanges()
 	TAKE_IF_CHANGED(iDlssNRToggleKey)
 	TAKE_IF_CHANGED(bDlssSR)
 	TAKE_IF_CHANGED(iDlssSRPreset)
+	TAKE_IF_CHANGED(bDlssFG)
+	TAKE_IF_CHANGED(iDlssFGMultiplier)
 #undef TAKE_IF_CHANGED
 	if (wcscmp(m_SetsPP.szDlssNRDllPath, m_SetsOpened.szDlssNRDllPath)) {
 		wcscpy_s(current.szDlssNRDllPath, m_SetsPP.szDlssNRDllPath);
 	}
 	if (wcscmp(m_SetsPP.szDlssSRDllPath, m_SetsOpened.szDlssSRDllPath)) {
 		wcscpy_s(current.szDlssSRDllPath, m_SetsPP.szDlssSRDllPath);
+	}
+	if (wcscmp(m_SetsPP.szDlssFGDllPath, m_SetsOpened.szDlssFGDllPath)) {
+		wcscpy_s(current.szDlssFGDllPath, m_SetsPP.szDlssFGDllPath);
 	}
 
 	m_pVideoRenderer->SetSettings(current);

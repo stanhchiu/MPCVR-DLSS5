@@ -1,15 +1,23 @@
-﻿# MPC Video Renderer + DLSS 5 Neural Rendering
+# MPC Video Renderer + DLSS 5 Neural Rendering & Frame Generation
 
 A fork of [Aleksoid1978/VideoRenderer](https://github.com/Aleksoid1978/VideoRenderer)
-that adds an optional NVIDIA **DLSS 5 Neural Rendering** pass to the Direct3D 11
-pipeline. Nothing else changes: with the option off, the renderer behaves exactly
-as upstream does.
+that adds optional NVIDIA **DLSS 5 Neural Rendering**, **DLSS Super Resolution**,
+and **DLSS Frame Generation (DLSS-G)** passes to the Direct3D 11 pipeline.
+Nothing else changes: with the options off, the renderer behaves exactly as upstream does.
 
 **→ [What it does, what it needs, how to build it](README-DLSS5.md)**
 
 ------------------
 
 To be clear on what's been changed :
+
+DLSS Frame Generation (DLSS-G) for video playback:
+- Multiplier support: 2×, 3×, and 4× frame rate interpolation (e.g. 24 fps → 48, 72, or 96 fps).
+- Powered by a private Direct3D 11 to Direct3D 12 interop bridge with shared NT handles and hardware synchronization fences.
+- Uses motion vectors from NVIDIA Optical Flow or DLSS-NR for guide vectors.
+- Robust seek handling (resets context on timeline jumps to prevent artifacting or crashes) and seamless dynamic window resize recovery.
+- "Show only interpolated frame" toggle for visual quality inspection of generated frames.
+- Requires `nvngx_dlssg.dll` (RTX 40-series or compatible environments).
 
 DLSS 5 neural reconstruction applied to film, frame by frame. — it rebuilds the picture, somehow.
 Comes with a temporal stabilizer driven by NVIDIA Optical Flow, to avoid shimmering.
@@ -45,9 +53,9 @@ The default luma upscaling is Jinc2m but I prefer less sharp (FSRCNNX 16 AR)
 
 ------------------
 
-Two things to know before you start: the feature needs NVIDIA's `nvngx_dlssnr.dll`,
-which is **not included here** and which you have to supply yourself, and it is x64
-only.
+Things to know before you start: the features need NVIDIA's `nvngx_dlssnr.dll` (for DLSS 5 NR),
+`nvngx_dlss.dll` (for DLSS SR), and/or `nvngx_dlssg.dll` (for DLSS Frame Generation), which are
+**not included here** and which you have to supply yourself, and it is x64 only.
 
 For the unmodified renderer, go to [upstream](https://github.com/Aleksoid1978/VideoRenderer) —
 that is where the releases, the issue tracker and the actual development are.

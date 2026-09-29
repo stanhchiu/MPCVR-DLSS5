@@ -1,4 +1,4 @@
-﻿/*
+/*
  * (C) 2018-2026 see Authors.txt
  *
  * This file is part of MPC-BE.
@@ -219,6 +219,10 @@ struct Settings_t {
 	// Start the DLSS passes early by what they take, and hold each finished picture
 	// until its time, so DLSS does not make the video late (see CRenderAhead).
 	bool bDlssRenderAhead;
+	// DLSS Frame Generation
+	bool bDlssFG;
+	int  iDlssFGMultiplier;
+	wchar_t szDlssFGDllPath[MAX_PATH];
 
 	Settings_t() {
 		SetDefault();
@@ -292,6 +296,9 @@ struct Settings_t {
 		iDlssSRPreset                   = DLSSSR_PRESET_DEF;
 		szDlssSRDllPath[0]              = L'\0';
 		bDlssRenderAhead                = true;
+		bDlssFG                         = false;
+		iDlssFGMultiplier               = 2; // Default to 2x (1 generated frame)
+		szDlssFGDllPath[0]              = 0;
 	}
 };
 
@@ -318,6 +325,9 @@ inline void CopyDlssSettings(Settings_t& dst, const Settings_t& src)
 	dst.bDlssSR               = src.bDlssSR;
 	dst.iDlssSRPreset         = src.iDlssSRPreset;
 	wcscpy_s(dst.szDlssSRDllPath, src.szDlssSRDllPath);
+	dst.bDlssFG               = src.bDlssFG;
+	dst.iDlssFGMultiplier     = src.iDlssFGMultiplier;
+	wcscpy_s(dst.szDlssFGDllPath, src.szDlssFGDllPath);
 	// bDlssRenderAhead is not here: it belongs to the main page, which sets it for
 	// the prescalers as much as for DLSS.
 }

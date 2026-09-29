@@ -1,21 +1,23 @@
-# DLSS 5 Neural Rendering for MPC Video Renderer
+# DLSS 5 Neural Rendering & Frame Generation for MPC Video Renderer
 
 A fork of [Aleksoid1978/VideoRenderer](https://github.com/Aleksoid1978/VideoRenderer) that adds
 an optional NVIDIA **DLSS 5 Neural Rendering** pass (NGX feature 18) to the Direct3D 11
-video pipeline, with a temporal stabilizer made for video, and an experimental option to
+video pipeline, with a temporal stabilizer made for video, an experimental option to
 enlarge the picture with **DLSS Super Resolution** (NGX feature 1) instead of the resize
-shaders.
+shaders, and **DLSS Frame Generation (DLSS-G)** (NGX feature 2) for 2×, 3×, and 4× frame rate
+interpolation.
 
-Neither pass is a denoiser. Feature 18 **reconstructs the picture**: it rebuilds detail and
+Neither neural pass is a denoiser. Feature 18 **reconstructs the picture**: it rebuilds detail and
 edges, and what it takes out of the grain and the compression noise is a consequence of that,
 not the job it was given. DLSS Super Resolution, in the 4.5 DLLs this was built against,
 rebuilds the picture as it enlarges it and comes out **cleaner than the source**: it takes
 about 70 % of the film grain out over time, and on compressed film it lands above Catmull-Rom
-on moving pictures. Which of the two you want, and whether that cleaner look suits your films,
-is your call: both are optional and off by default.
+on moving pictures. **DLSS Frame Generation** doubles, triples, or quadruples the frame rate
+for high-refresh displays via an internal D3D11-to-D3D12 interop bridge. Which features you want,
+and whether they suit your films, is your call: all are optional and off by default.
 
 The renderer stays a Direct3D 11 filter. Nothing about its existing pipeline changes when
-the feature is off, and the rendering is bit-identical to upstream in that state.
+the features are off, and the rendering is bit-identical to upstream in that state.
 
 ---
 
@@ -23,28 +25,29 @@ the feature is off, and the rendering is bit-identical to upstream in that state
 
 | | |
 |---|---|
-| GPU | NVIDIA RTX. Developed and tested on an RTX 3050 (Ampere), driver r596 |
-| OS | Windows 10 1703 or later (shared fences), x64 only |
+| GPU | NVIDIA RTX (RTX 40-series recommended for Frame Generation). Developed and tested on RTX 3050 & RTX 40-series |
+| OS | Windows 10 1703 or later (shared NT fences), x64 only |
 | Player | MPC-BE or any DirectShow player that lets you force a renderer |
-| DLL | `nvngx_dlssnr.dll` — **not included, see below** |
-| Optical Flow | `nvofapi64.dll`, installed with the NVIDIA driver (RTX 20 series and later). Optional: without it the stabilizer uses its shader detector |
+| DLSS 5 NR DLL | `nvngx_dlssnr.dll` — **not included, see below** |
+| DLSS-G DLL | Optional: `nvngx_dlssg.dll` for Frame Generation — **not included, see below** |
+| Optical Flow | `nvofapi64.dll`, installed with the NVIDIA driver (RTX 20 series and later). Used for stabilizer motion vectors and optical flow guides |
 | DLSS Super Resolution | Optional: `nvngx_dlss.dll` 310.5 or later (DLSS 4.5), from the public [NVIDIA/DLSS](https://github.com/NVIDIA/DLSS) repository (`lib/Windows_x86_64/rel`). Developed with 310.9.1 |
 
-### The DLL is not in this repository
+### The DLLs are not in this repository
 
-`nvngx_dlssnr.dll` is NVIDIA's property and is not redistributable, so it is not here and
-will not be. At roughly 159 MB it also exceeds GitHub's per-file limit.
+`nvngx_dlssnr.dll` and `nvngx_dlssg.dll` are NVIDIA's property and are not redistributable,
+so they are not here and will not be.
 
-You supply it yourself. The filter looks for it, in order:
+You supply them yourself. The filter looks for them, in order:
 
 1. the path set in the property page, if any
 2. next to `MpcVideoRenderer64.ax`
 3. `<filter directory>\dlss\`
 4. one and two directories above the filter
 
-The **DLSS 5** property page has a **DLL** field and a browse button if you keep it elsewhere.
-`nvngx_dlss.dll`, for DLSS Super Resolution, is searched the same way and has its own field;
-it must keep its name, because the driver's NGX runtime loads it by name from that folder.
+The **DLSS 5** property page has browse fields for each DLL (`nvngx_dlssnr.dll`, `nvngx_dlss.dll`,
+and `nvngx_dlssg.dll`). For Frame Generation, the UI offers 2×, 3×, and 4× multipliers as well as
+a "Show only interpolated frame" visual debug mode.
 
 ---
 

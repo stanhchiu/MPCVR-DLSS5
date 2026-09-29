@@ -1,4 +1,4 @@
-﻿/*
+/*
  * (C) 2020-2026 see Authors.txt
  *
  * This file is part of MPC-BE.
@@ -216,6 +216,7 @@ public:
 	// One line describing the DLSS 5 NR session; empty when not applicable.
 	virtual std::wstring GetDlssStatus() { return {}; }
 	virtual std::wstring GetDlssSRStatus() { return {}; }
+	virtual std::wstring GetDlssFGStatus() { return {}; }
 
 	// Render ahead: how much earlier than usual the next sample should be processed,
 	// in 100 ns units, and how long pictures were held for their time since the last
@@ -258,7 +259,7 @@ public:
 
 	void SetDisplayInfo(const DisplayConfig_t& dc, const bool primary, const bool exclusiveScreen);
 
-	bool GetDoubleRate() { return m_bDoubleFrames; }
+	virtual bool GetDoubleRate() { return m_bDoubleFrames; }
 
 	virtual ISubPicAllocator* GetSubPicAllocator() { return nullptr; }
 

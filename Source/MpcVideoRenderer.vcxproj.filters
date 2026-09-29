@@ -60,6 +60,9 @@
     <ClCompile Include="DLSS\DlssSR.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="DLSS\DlssFG.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="DLSS\D3D12Interop.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -192,6 +195,9 @@
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="DLSS\DlssSR.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="DLSS\DlssFG.h">
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="DLSS\D3D12Interop.h">

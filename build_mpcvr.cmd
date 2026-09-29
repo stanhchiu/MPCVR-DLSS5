@@ -153,7 +153,7 @@ ENDLOCAL
 EXIT
 
 :SubVSPath
-SET "PARAMS=-property installationPath -requires Microsoft.Component.MSBuild"
+SET "PARAMS=-products Microsoft.VisualStudio.Product.Community Microsoft.VisualStudio.Product.Professional Microsoft.VisualStudio.Product.Enterprise Microsoft.VisualStudio.Product.BuildTools -property installationPath -requires Microsoft.Component.MSBuild"
 IF /I "%COMPILER%" == "VS2019" (
   SET "PARAMS=%PARAMS% -version [16.0,17.0)"
 ) ELSE IF /I "%COMPILER%" == "VS2022" (
@@ -161,8 +161,7 @@ IF /I "%COMPILER%" == "VS2019" (
 ) ELSE (
   SET "PARAMS=%PARAMS% -latest"
 )
-SET "VSWHERE="%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" %PARAMS%"
-FOR /f "delims=" %%A IN ('!VSWHERE!') DO SET VS_PATH=%%A
+FOR /f "usebackq delims=" %%A IN (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" %PARAMS%`) DO SET "VS_PATH=%%A"
 EXIT /B
 
 :SubDetectSevenzipPath

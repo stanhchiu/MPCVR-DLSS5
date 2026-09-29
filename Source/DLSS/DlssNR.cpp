@@ -64,33 +64,6 @@ static const wchar_t s_ShimName[]    = L"nvngx.dll";
 #define P_DEPTH        "DLSSNR.Depth"
 #define P_CONTROLMASK  "DLSSNR.ControlMask"
 
-const wchar_t* NgxResultName(NVSDK_NGX_Result r)
-{
-	switch (r) {
-	case NGX_Result_Success:                        return L"Success";
-	case NGX_Result_Fail:                           return L"Fail";
-	case NGX_Result_FAIL_FeatureNotSupported:       return L"FeatureNotSupported";
-	case NGX_Result_FAIL_PlatformError:             return L"PlatformError";
-	case NGX_Result_FAIL_FeatureAlreadyExists:      return L"FeatureAlreadyExists";
-	case NGX_Result_FAIL_FeatureNotFound:           return L"FeatureNotFound";
-	case NGX_Result_FAIL_InvalidParameter:          return L"InvalidParameter";
-	case NGX_Result_FAIL_ScratchBufferTooSmall:     return L"ScratchBufferTooSmall";
-	case NGX_Result_FAIL_NotInitialized:            return L"NotInitialized";
-	case NGX_Result_FAIL_UnsupportedInputFormat:    return L"UnsupportedInputFormat";
-	case NGX_Result_FAIL_RWFlagMissing:             return L"RWFlagMissing";
-	case NGX_Result_FAIL_MissingInput:              return L"MissingInput";
-	case NGX_Result_FAIL_UnableToInitializeFeature: return L"UnableToInitializeFeature";
-	case NGX_Result_FAIL_OutOfDate:                 return L"OutOfDate";
-	case NGX_Result_FAIL_OutOfGPUMemory:            return L"OutOfGPUMemory";
-	case NGX_Result_FAIL_UnsupportedFormat:         return L"UnsupportedFormat";
-	case NGX_Result_FAIL_UnableToWriteToAppDataPath:return L"UnableToWriteToAppDataPath";
-	case NGX_Result_FAIL_UnsupportedParameter:      return L"UnsupportedParameter";
-	case NGX_Result_FAIL_Denied:                    return L"Denied";
-	case NGX_Result_FAIL_NotImplemented:            return L"NotImplemented";
-	}
-	return L"Unknown";
-}
-
 
 
 // ============================================================================

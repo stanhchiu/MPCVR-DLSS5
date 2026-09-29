@@ -1,4 +1,4 @@
-﻿/*
+/*
 * (C) 2018-2026 see Authors.txt
 *
 * This file is part of MPC-BE.
@@ -33,6 +33,7 @@
 #include "DLSS/DlssStabilizer.h"
 #include "DLSS/DlssNR.h"
 #include "DLSS/DlssSR.h"
+#include "DLSS/DlssFG.h"
 #include "DLSS/DlssTiming.h"
 #include "Upscale/MpvShader.h"
 #include "VideoProcessor.h"
@@ -83,6 +84,8 @@ private:
 	Tex2D_t m_TexDither;
 	Tex2D_t m_TexDlssIn;  // RGBA16F copy of the converted frame, only when a format change is needed
 	Tex2D_t m_TexDlssOut; // RGBA16F NGX output, always UAV-capable
+	Tex2D_t m_TexDlssFGIn;     // RGBA16F copy of the frame for DLSS FG
+	Tex2D_t m_TexDlssFGInterp; // RGBA16F NGX FG interpolated output
 
 	// for GetAlignmentSize()
 	struct Alignment_t {
@@ -235,6 +238,15 @@ private:
 	CGpuStageTimes m_DlssStageTimes;
 	CRollingMs m_DlssNRTimes;
 
+	CDlssFG m_DlssFG;
+	CDlssFG::Params m_DlssFGParams;
+	std::wstring m_strDlssFGDllPath;
+	bool m_bDlssFG = false;
+	int m_iDlssFGMultiplier = 2;
+	bool m_bDlssFGActive = false;     // Initialized and feature ready
+	bool m_bDlssFGFirstFrame = true; // First frame after flush/reset
+	CRollingMs m_DlssFGTimes;
+
 	// mpv prescalers (Shaders/mpv). As the Upscaling method, FSRCNNX, RAVU-zoom or
 	// ArtCNN enlarges the luma and Catmull-Rom the picture, which takes the network's
 	// luma; the resize shaders then scale what is left. As Chroma upsampling, RAVU-zoom
@@ -275,7 +287,7 @@ private:
 	// Catmull-Rom in its place.
 	int ChromaScalingForShader() const;
 
-	bool RenderAheadActive() const { return m_bDlssRenderAhead && (m_bDlssNRActive || m_bDlssSRActive || m_MpvLuma.IsLoaded()); }
+	bool RenderAheadActive() const { return m_bDlssRenderAhead && (m_bDlssNRActive || m_bDlssSRActive || m_bDlssFGActive || m_MpvLuma.IsLoaded()); }
 	void MarkPictureSubmitted();
 	void HoldUntilPresentTime(const REFERENCE_TIME frameStartTime, const bool bMeasure);
 
@@ -434,11 +446,13 @@ public:
 			return 0;
 		}
 		// It only resizes while no DLSS pass has taken that back from it (UpdateTexures).
-		const bool bResizes = m_bVPScaling && !m_bVPScalingUseShaders && !m_bDlssNRActive && !m_bDlssSRActive;
+		const bool bResizes = m_bVPScaling && !m_bVPScalingUseShaders && !m_bDlssNRActive && !m_bDlssSRActive && !m_bDlssFGActive;
 		// With the chroma rebuilt before it, the processor is handed 4:4:4 and the
 		// chroma list is the shaders', so it is not the one converting chroma.
 		return (m_bChromaReplacedVP ? 0 : VPUSE_Converting) | (bResizes ? VPUSE_Resizing : 0);
 	}
+
+	bool GetDoubleRate() override { return m_bDoubleFrames || (m_bDlssFGActive && (m_SampleFormat == D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE)); }
 
 	// Settings
 	void Configure(const Settings_t& config) override;
@@ -474,7 +488,7 @@ private:
 	void DrawSubtitles(ID3D11Texture2D* pRenderTarget);
 	// bAllowDlss is false for the screenshot path, which must not disturb the
 	// network's temporal history.
-	HRESULT Process(ID3D11Texture2D* pRenderTarget, const CRect& srcRect, const CRect& dstRect, const bool second, const bool bAllowDlss = true);
+	HRESULT Process(ID3D11Texture2D* pRenderTarget, const CRect& srcRect, const CRect& dstRect, const int passField, const bool bAllowDlss = true);
 	HRESULT DlssNRPass(Tex2D_t* pInputTexture, const CRect& rSrc, Tex2D_t** ppResult);
 	bool DlssNRSupportedHere() const;
 	void UpdateDlssNR();
@@ -487,6 +501,11 @@ private:
 	bool DlssSRSupportedHere() const;
 	void UpdateDlssSR();
 	std::wstring GetDlssSRStatus() override;
+
+	HRESULT DlssFGPass(Tex2D_t* pInputTexture, const CRect& rSrc, const int passIndex);
+	bool DlssFGSupportedHere() const;
+	void UpdateDlssFG();
+	std::wstring GetDlssFGStatus() override;
 
 	// Loads the prescaler the Upscaling method names, or drops it.
 	void UpdateMpvLuma();

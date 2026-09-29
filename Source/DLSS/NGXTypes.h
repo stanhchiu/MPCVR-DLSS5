@@ -70,6 +70,9 @@ constexpr unsigned long long NGX_DLSSNR_APPID = 141959980ull;
 // DLSS Super Resolution, through the driver core.
 constexpr uint32_t NGX_FEATURE_SUPERSAMPLING = 1;
 
+// DLSS Frame Generation (Interpolation), through nvngx_dlssg.dll.
+constexpr uint32_t NGX_FEATURE_INTERPOLATION = 11;
+
 // NVSDK_NGX_PerfQuality_Value: the scale a feature is tuned for.
 enum : int {
 	NGX_PERFQUALITY_MaxPerf          = 0,   // 2x

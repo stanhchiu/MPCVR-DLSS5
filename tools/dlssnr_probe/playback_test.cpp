@@ -27,6 +27,7 @@
 //   playback_test.exe --chroma <png> --interlaced   the media type says interlaced, to see
 //   playback_test.exe --toggle          settings changed in full playback, as the player does
 //                                     which processor then converts the picture
+//   playback_test.exe --resize          live window resizing during playback with DLSS FG active
 
 #include <windows.h>
 #include <VersionHelpers.h>
@@ -72,6 +73,7 @@ static bool g_bHardwareVP = false; // --vp: leave the video processor the format
 static bool g_bChroma = false;
 static bool g_bChroma444 = false;      // this run feeds AYUV, the reference
 static bool g_bToggle = false;         // --toggle: settings changed while the film plays
+static bool g_bResize = false;         // --resize: window resizing during playback with DLSS FG
 static bool g_bToggleHdr = false;      // --toggle --hdr: with HDR passthrough, the case that freezes
 static bool g_bToggleThread = false;   // --toggle --thread: applied from another thread, as the player's page does
 static bool g_bToggleSwitch = false;   // --toggle --switch: the processor's extras as the chroma moves to the shaders and back
@@ -83,6 +85,7 @@ static double g_filmSeek = 0;          // --seek <seconds>: where to start in it
 static bool NV12Source() { return g_bScalers || g_bToggle; }
 static bool g_bChroma10 = false;       // --chroma10: 10 bits, P010 against Y410
 static bool g_bInterlaced = false;     // --interlaced: the media type says so, to see who converts
+static bool g_bSeekTest = false;       // --seektest: triggers an IMediaSeeking Seek call mid-playback to simulate seeking
 static std::vector<BYTE> g_refPicture; // BGRA, top-down, the picture --chroma plays
 static bool g_bChromaVerbose = false;  // --verbose: the whole overlay of each run
 
@@ -473,6 +476,8 @@ struct Config {
 	bool bNR;
 	bool bSR;
 	bool bAhead;
+	bool bFG = false;
+	int iFGMult = 2;
 	int iUpscaling = -1;     // UPSCALE_*, -1: the saved setting
 	int iChromaScaling = -1; // CHROMA_*, -1: the saved setting
 	bool bHardwareVP = false; // --chroma: this run goes through the hardware processor
@@ -660,6 +665,8 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 	sets.bDlssNR = config.bNR;
 	sets.bDlssSR = config.bSR;
 	sets.bDlssRenderAhead = config.bAhead;
+	sets.bDlssFG = config.bFG;
+	sets.iDlssFGMultiplier = config.iFGMult;
 	if (config.iUpscaling >= 0) {
 		sets.iUpscaling = config.iUpscaling;
 	}
@@ -754,6 +761,16 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 		call();
 		return (GetTickCount64() - t0) / 1000.0;
 	};
+
+	if (g_bSeekTest) {
+		CComQIPtr<IMediaSeeking> pMS(pGraph.p);
+		if (pMS) {
+			LONGLONG pos = 10000000; // Seek to 1 second
+			TimeCall([&] { pMS->SetPositions(&pos, AM_SEEKING_AbsolutePositioning, nullptr, AM_SEEKING_NoPositioning); });
+			Pump(1500); // Give it time to render after seek
+		}
+	}
+
 	result.stopSeconds[0] = TimeCall([&] { pMC->Pause(); });
 	Pump(700);
 	result.stopSeconds[1] = TimeCall([&] { pMC->Run(); });
@@ -990,6 +1007,7 @@ static ChromaMetrics ScoreChroma(const std::vector<BYTE>& test, const std::vecto
 #include "file_graph.inl"
 #include "d3d11_source.inl"
 #include "toggle_suite.inl"
+#include "resize_suite.inl"
 
 int wmain(int argc, wchar_t* argv[])
 {
@@ -1057,6 +1075,10 @@ int wmain(int argc, wchar_t* argv[])
 			g_bToggle = true;
 			source.cx &= ~1; // NV12
 			source.cy &= ~1;
+		} else if (!wcscmp(argv[i], L"--resize")) {
+			g_bResize = true;
+		} else if (!wcscmp(argv[i], L"--seektest")) {
+			g_bSeekTest = true;
 		}
 	}
 
@@ -1126,42 +1148,53 @@ int wmain(int argc, wchar_t* argv[])
 		return rc;
 	}
 
+	if (g_bResize) {
+		const int rc = RunResizeSuite(hFilter, hwnd, source, window, seconds > 20 ? 20 : seconds);
+		DestroyWindow(hwnd);
+		CoUninitialize();
+		return rc;
+	}
+
 	static const Config dlssConfigs[] = {
-		{ "DLSS off",                       false, false, true  },
-		{ "DLSS SR, render ahead off",      false, true,  false },
-		{ "DLSS SR, render ahead on",       false, true,  true  },
-		{ "NR + SR, render ahead off",      true,  true,  false },
-		{ "NR + SR, render ahead on",       true,  true,  true  },
+		{ "DLSS off",                       false, false, true,  false },
+		{ "DLSS SR, render ahead off",      false, true,  false, false },
+		{ "DLSS SR, render ahead on",       false, true,  true,  false },
+		{ "NR + SR, render ahead off",      true,  true,  false, false },
+		{ "NR + SR, render ahead on",       true,  true,  true,  false },
+		{ "FG 2x,   render ahead off",      false, false, false, true, 2 },
+		{ "FG 3x,   render ahead off",      false, false, false, true, 3 },
+		{ "FG 4x,   render ahead off",      false, false, false, true, 4 },
+		{ "FG 2x,   render ahead on",       false, false, true,  true, 2 },
 	};
 	// The first is the one the others are compared with.
 	static const Config scalerConfigs[] = {
-		{ "Catmull-Rom, chroma Catmull-Rom", false, false, true, UPSCALE_CatmullRom, CHROMA_CatmullRom },
-		{ "Jinc2m, chroma Catmull-Rom",      false, false, true, UPSCALE_Jinc2,      CHROMA_CatmullRom },
-		{ "FSRCNNX 8, chroma Catmull-Rom",   false, false, true, UPSCALE_FSRCNNX8,   CHROMA_CatmullRom },
-		{ "FSRCNNX 16, chroma Catmull-Rom",  false, false, true, UPSCALE_FSRCNNX16,  CHROMA_CatmullRom },
-		{ "RAVU-zoom, chroma Catmull-Rom",   false, false, true, UPSCALE_RAVUZoom,   CHROMA_CatmullRom },
-		{ "FSRCNNX 8 AR, chroma Catmull-Rom", false, false, true, UPSCALE_FSRCNNX8AR, CHROMA_CatmullRom },
-		{ "FSRCNNX 16 AR, chroma Catmull-Rom", false, false, true, UPSCALE_FSRCNNX16AR, CHROMA_CatmullRom },
-		{ "ArtCNN C4F16 DS, chroma Catmull-Rom", false, false, true, UPSCALE_ArtCNN, CHROMA_CatmullRom },
-		{ "Catmull-Rom, chroma RAVU-zoom",   false, false, true, UPSCALE_CatmullRom, CHROMA_RAVU       },
-		{ "RAVU-zoom, chroma RAVU-zoom",     false, false, true, UPSCALE_RAVUZoom,   CHROMA_RAVU       },
-		{ "ArtCNN C4F16 DS, chroma Jinc",    false, false, true, UPSCALE_ArtCNN,     CHROMA_Jinc       },
+		{ "Catmull-Rom, chroma Catmull-Rom", false, false, true, false, UPSCALE_CatmullRom, CHROMA_CatmullRom },
+		{ "Jinc2m, chroma Catmull-Rom",      false, false, true, false, UPSCALE_Jinc2,      CHROMA_CatmullRom },
+		{ "FSRCNNX 8, chroma Catmull-Rom",   false, false, true, false, UPSCALE_FSRCNNX8,   CHROMA_CatmullRom },
+		{ "FSRCNNX 16, chroma Catmull-Rom",  false, false, true, false, UPSCALE_FSRCNNX16,  CHROMA_CatmullRom },
+		{ "RAVU-zoom, chroma Catmull-Rom",   false, false, true, false, UPSCALE_RAVUZoom,   CHROMA_CatmullRom },
+		{ "FSRCNNX 8 AR, chroma Catmull-Rom", false, false, true, false, UPSCALE_FSRCNNX8AR, CHROMA_CatmullRom },
+		{ "FSRCNNX 16 AR, chroma Catmull-Rom", false, false, true, false, UPSCALE_FSRCNNX16AR, CHROMA_CatmullRom },
+		{ "ArtCNN C4F16 DS, chroma Catmull-Rom", false, false, true, false, UPSCALE_ArtCNN, CHROMA_CatmullRom },
+		{ "Catmull-Rom, chroma RAVU-zoom",   false, false, true, false, UPSCALE_CatmullRom, CHROMA_RAVU       },
+		{ "RAVU-zoom, chroma RAVU-zoom",     false, false, true, false, UPSCALE_RAVUZoom,   CHROMA_RAVU       },
+		{ "ArtCNN C4F16 DS, chroma Jinc",    false, false, true, false, UPSCALE_ArtCNN,     CHROMA_Jinc       },
 	};
 	// The reference comes first: the same picture in 4:4:4, which needs no chroma
 	// upsampling at all, through the same conversion to RGB.
 	static const Config chromaConfigs[] = {
-		{ "4:4:4 (AYUV), nothing to upsample", false, false, true, -1, -1,                false, true  },
-		{ "4:2:0, hardware video processor",   false, false, true, -1, -1,                true,  false },
-		{ "4:2:0, hardware VP, chroma replaced", false, false, true, -1, CHROMA_CatmullRom, true, false, true },
-		{ "4:2:0, hardware VP, chroma replaced, RAVU", false, false, true, -1, CHROMA_RAVU, true, false, true },
-		{ "4:2:0, shaders, Nearest",           false, false, true, -1, CHROMA_Nearest                  },
-		{ "4:2:0, shaders, Bilinear",          false, false, true, -1, CHROMA_Bilinear                 },
-		{ "4:2:0, shaders, Catmull-Rom",       false, false, true, -1, CHROMA_CatmullRom               },
-		{ "4:2:0, shaders, RAVU-zoom",         false, false, true, -1, CHROMA_RAVU                     },
-		{ "4:2:0, shaders, Jinc (EWA)",        false, false, true, -1, CHROMA_Jinc                     },
-		{ "4:2:0, shaders, FSRCNNX 8 AR",      false, false, true, -1, CHROMA_FSRCNNX8AR               },
-		{ "4:2:0, hardware VP, chroma replaced, Jinc", false, false, true, -1, CHROMA_Jinc, true, false, true },
-		{ "4:2:0, hardware VP, chroma replaced, FSRCNNX 8 AR", false, false, true, -1, CHROMA_FSRCNNX8AR, true, false, true },
+		{ "4:4:4 (AYUV), nothing to upsample", false, false, true, false, -1, -1,                false, true  },
+		{ "4:2:0, hardware video processor",   false, false, true, false, -1, -1,                true,  false },
+		{ "4:2:0, hardware VP, chroma replaced", false, false, true, false, -1, CHROMA_CatmullRom, true, false, true },
+		{ "4:2:0, hardware VP, chroma replaced, RAVU", false, false, true, false, -1, CHROMA_RAVU, true, false, true },
+		{ "4:2:0, shaders, Nearest",           false, false, true, false, -1, CHROMA_Nearest                  },
+		{ "4:2:0, shaders, Bilinear",          false, false, true, false, -1, CHROMA_Bilinear                 },
+		{ "4:2:0, shaders, Catmull-Rom",       false, false, true, false, -1, CHROMA_CatmullRom               },
+		{ "4:2:0, shaders, RAVU-zoom",         false, false, true, false, -1, CHROMA_RAVU                     },
+		{ "4:2:0, shaders, Jinc (EWA)",        false, false, true, false, -1, CHROMA_Jinc                     },
+		{ "4:2:0, shaders, FSRCNNX 8 AR",      false, false, true, false, -1, CHROMA_FSRCNNX8AR               },
+		{ "4:2:0, hardware VP, chroma replaced, Jinc", false, false, true, false, -1, CHROMA_Jinc, true, false, true },
+		{ "4:2:0, hardware VP, chroma replaced, FSRCNNX 8 AR", false, false, true, false, -1, CHROMA_FSRCNNX8AR, true, false, true },
 	};
 	const Config* configs = g_bChroma ? chromaConfigs : g_bScalers ? scalerConfigs : dlssConfigs;
 	const int configCount = (int)(g_bChroma ? std::size(chromaConfigs)

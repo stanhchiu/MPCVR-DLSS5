@@ -5,7 +5,7 @@ REM The shim source is shared with the NgxShim project -- there is only one copy
 SETLOCAL
 PUSHD %~dp0
 
-FOR /F "usebackq tokens=*" %%i IN (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) DO SET VSPATH=%%i
+FOR /F "usebackq tokens=*" %%i IN (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products Microsoft.VisualStudio.Product.Community Microsoft.VisualStudio.Product.Professional Microsoft.VisualStudio.Product.Enterprise Microsoft.VisualStudio.Product.BuildTools -requires Microsoft.Component.MSBuild -property installationPath`) DO SET VSPATH=%%i
 IF "%VSPATH%"=="" (
   ECHO Visual Studio not found.
   EXIT /B 1
@@ -61,6 +61,14 @@ cl /nologo /EHsc /std:c++20 /O2 /MT /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x
    "%SRC%\DX11Helper.cpp" "%SRC%\Utils\Util.cpp" ^
    "%MH%\hook.c" "%MH%\buffer.c" "%MH%\trampoline.c" "%MH%\hde\hde64.c" ^
    detector_shaders.res /Fe:dlssnr_harness.exe || EXIT /B 1
+
+ECHO Building the DLSS-G Frame Generation harness...
+cl /nologo /EHsc /std:c++20 /O2 /MT /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x0601 ^
+   /DUNICODE /D_UNICODE /I"%SRC%" /I"..\..\external\minhook\include" dlssfg_harness.cpp ^
+   "%SRC%\DLSS\DlssFG.cpp" "%SRC%\DLSS\D3D12Interop.cpp" ^
+   "%SRC%\DX11Helper.cpp" "%SRC%\Utils\Util.cpp" ^
+   "%MH%\hook.c" "%MH%\buffer.c" "%MH%\trampoline.c" "%MH%\hde\hde64.c" ^
+   /Fe:dlssfg_harness.exe || EXIT /B 1
 
 ECHO Building the video processor rebuild test (the paused green frame)...
 cl /nologo /EHsc /std:c++20 /O2 /MT /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x0601 ^

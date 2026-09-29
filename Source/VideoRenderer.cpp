@@ -1,4 +1,4 @@
-﻿/*
+/*
  * (C) 2018-2026 see Authors.txt
  *
  * This file is part of MPC-BE.
@@ -88,6 +88,9 @@
 #define OPT_DlssSR                         L"DlssSRUpscaling"
 #define OPT_DlssSRPreset                   L"DlssSRPreset"
 #define OPT_DlssSRDllPath                  L"DlssSRDllPath"
+#define OPT_DlssFG                         L"DlssFrameGeneration"
+#define OPT_DlssFGMultiplier               L"DlssFGMultiplier"
+#define OPT_DlssFGDllPath                  L"DlssFGDllPath"
 #define OPT_DlssRenderAhead                L"DlssRenderAhead"
 
 static std::atomic_int g_nInstance = 0;
@@ -366,6 +369,19 @@ CMpcVideoRenderer::CMpcVideoRenderer(LPUNKNOWN pUnk, HRESULT* phr)
 				m_Sets.szDlssSRDllPath[0] = L'\0';
 			}
 			m_Sets.szDlssSRDllPath[std::size(m_Sets.szDlssSRDllPath) - 1] = L'\0';
+		}
+		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssFG, dw)) {
+			m_Sets.bDlssFG = !!dw;
+		}
+		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssFGMultiplier, dw)) {
+			m_Sets.iDlssFGMultiplier = discard<int>((int)dw, 2, 2, 4);
+		}
+		{
+			ULONG nChars = std::size(m_Sets.szDlssFGDllPath);
+			if (ERROR_SUCCESS != key.QueryStringValue(OPT_DlssFGDllPath, m_Sets.szDlssFGDllPath, &nChars)) {
+				m_Sets.szDlssFGDllPath[0] = L'\0';
+			}
+			m_Sets.szDlssFGDllPath[std::size(m_Sets.szDlssFGDllPath) - 1] = L'\0';
 		}
 #endif
 		// Render ahead is set on the main page and covers the mpv prescalers as well,
@@ -1533,6 +1549,9 @@ STDMETHODIMP CMpcVideoRenderer::SaveSettings()
 		key.SetDWORDValue(OPT_DlssSR,              m_Sets.bDlssSR);
 		key.SetDWORDValue(OPT_DlssSRPreset,        m_Sets.iDlssSRPreset);
 		key.SetStringValue(OPT_DlssSRDllPath,      m_Sets.szDlssSRDllPath);
+		key.SetDWORDValue(OPT_DlssFG,              m_Sets.bDlssFG);
+		key.SetDWORDValue(OPT_DlssFGMultiplier,    m_Sets.iDlssFGMultiplier);
+		key.SetStringValue(OPT_DlssFGDllPath,      m_Sets.szDlssFGDllPath);
 #endif
 		key.SetDWORDValue(OPT_DlssRenderAhead,     m_Sets.bDlssRenderAhead);
 	}
@@ -1634,12 +1653,14 @@ STDMETHODIMP CMpcVideoRenderer::Flt_GetString(LPCSTR field, LPWSTR* value, unsig
 	// for tools that log them.
 	const bool bNR = !strcmp(field, "dlssStatus");
 	const bool bSR = !strcmp(field, "dlssSRStatus");
+	const bool bFG = !strcmp(field, "dlssFGStatus");
 	const bool bStats = !strcmp(field, "statsText");
-	if (bNR || bSR || bStats) {
+	if (bNR || bSR || bFG || bStats) {
 		CAutoLock cRendererLock(&m_RendererLock);
 		std::wstring str;
 		if (m_VideoProcessor) {
 			str = bStats ? m_VideoProcessor->GetStatsText()
+				: bFG ? m_VideoProcessor->GetDlssFGStatus()
 				: bSR ? m_VideoProcessor->GetDlssSRStatus() : m_VideoProcessor->GetDlssStatus();
 		}
 		const size_t len = str.size();

@@ -1,4 +1,4 @@
-﻿//{{NO_DEPENDENCIES}}
+//{{NO_DEPENDENCIES}}
 // Microsoft Visual C++ generated include file.
 // Used by MpcVideoRenderer.rc
 //
@@ -201,13 +201,22 @@
 #define IDC_STATIC41                    1118
 #define IDC_CHECK27                     1119
 
+#define IDC_CHECK28                     1120
+#define IDC_COMBO16                     1121
+#define IDC_STATIC42                    1122
+#define IDC_EDIT10                      1123
+#define IDC_BUTTON5                     1124
+#define IDC_STATIC43                    1125
+#define IDC_STATIC44                    1126
+#define IDC_STATIC45                    1127
+
 // Next default values for new objects
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        108
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         1120
+#define _APS_NEXT_CONTROL_VALUE         1128
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif
