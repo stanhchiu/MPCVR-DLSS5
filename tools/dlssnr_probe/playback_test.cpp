@@ -494,7 +494,7 @@ struct Result {
 	int framesAtEnd = 0;
 	int lateAtStart = 0;
 	int lateAtEnd = 0;
-	std::wstring nrLine, srLine, dlssTimes, aheadLine;
+	std::wstring nrLine, srLine, fgLine, dlssTimes, aheadLine;
 	std::wstring vprocLine, scalingLine, prescaleTimes;
 	std::wstring statsAll; // --chroma: the whole overlay, to see what else differs
 	std::vector<BYTE> picture;      // BGRA, top-down, as displayed
@@ -729,6 +729,7 @@ static Result RunConfig(HMODULE hFilter, HWND hwnd, const Config& config, SIZE s
 	result.lateAtEnd = ParseLate(text);
 	result.nrLine = StatsLine(text, L"DLSS 5 NR     : ");
 	result.srLine = StatsLine(text, L"DLSS SR       : ");
+	result.fgLine = StatsLine(text, L"DLSS FG       : ");
 	result.dlssTimes = StatsLine(text, L"DLSS (ms)     : ");
 	result.aheadLine = StatsLine(text, L"Render ahead  : ");
 	result.vprocLine = StatsLine(text, L"VideoProcessor: ");
@@ -1298,6 +1299,9 @@ int wmain(int argc, wchar_t* argv[])
 		}
 		if (config.bSR) {
 			wprintf(L"   DLSS SR      : %s\n", r.srLine.c_str());
+		}
+		if (config.bFG) {
+			wprintf(L"   DLSS FG      : %s\n", r.fgLine.c_str());
 		}
 		if (!r.dlssTimes.empty()) {
 			wprintf(L"   DLSS (ms)    : %s\n", r.dlssTimes.c_str());

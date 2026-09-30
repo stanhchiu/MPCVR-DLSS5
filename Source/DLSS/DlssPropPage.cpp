@@ -183,6 +183,31 @@ void CVRDlssPPage::EnableControls()
 	}
 }
 
+void CVRDlssPPage::UpdateStatuses()
+{
+	const struct { const char* field; int id; } statuses[] = {
+		{ "dlssStatus",   IDC_STATIC28 },
+		{ "dlssSRStatus", IDC_STATIC38 },
+		{ "dlssFGStatus", IDC_STATIC44 },
+	};
+	if (CComQIPtr<IExFilterConfig> pIExFilterConfig = m_pVideoRenderer.p) {
+		for (const auto& s : statuses) {
+			LPWSTR pstr = nullptr;
+			std::wstring status;
+			if (S_OK == pIExFilterConfig->Flt_GetString(s.field, &pstr, nullptr) && pstr) {
+				status = pstr;
+				CoTaskMemFree(pstr);
+			}
+			const std::wstring newText = status.empty() ? L"" : (L"Status: " + status);
+			wchar_t currentText[256] = {};
+			GetDlgItemTextW(s.id, currentText, (int)std::size(currentText));
+			if (newText != currentText) {
+				SetDlgItemTextW(s.id, newText.c_str());
+			}
+		}
+	}
+}
+
 HRESULT CVRDlssPPage::OnConnect(IUnknown* pUnk)
 {
 	if (pUnk == nullptr) return E_POINTER;
@@ -267,25 +292,7 @@ HRESULT CVRDlssPPage::OnActivate()
 	SendDlgItemMessageW(IDC_SLIDER8, TBM_SETLINESIZE, 0, 1);
 	SendDlgItemMessageW(IDC_SLIDER8, TBM_SETPAGESIZE, 0, 10);
 
-	{
-		// Show whether each session actually came up, and why not if it did not.
-		const struct { const char* field; int id; } statuses[] = {
-			{ "dlssStatus",   IDC_STATIC28 },
-			{ "dlssSRStatus", IDC_STATIC38 },
-			{ "dlssFGStatus", IDC_STATIC44 },
-		};
-		for (const auto& s : statuses) {
-			std::wstring status;
-			if (CComQIPtr<IExFilterConfig> pIExFilterConfig = m_pVideoRenderer.p) {
-				LPWSTR pstr = nullptr;
-				if (S_OK == pIExFilterConfig->Flt_GetString(s.field, &pstr, nullptr) && pstr) {
-					status = pstr;
-					CoTaskMemFree(pstr);
-				}
-			}
-			SetDlgItemTextW(s.id, status.empty() ? L"" : (L"Status: " + status).c_str());
-		}
-	}
+	UpdateStatuses();
 
 	SetControls();
 	EnableControls();
@@ -384,6 +391,7 @@ INT_PTR CVRDlssPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
 			m_SetsOpened.bUseD3D11 = current.bUseD3D11;
 			EnableControls();
 		}
+		UpdateStatuses();
 	}
 
 	if (uMsg == WM_COMMAND) {
@@ -586,16 +594,7 @@ HRESULT CVRDlssPPage::OnApplyChanges()
 	SetControls();
 	EnableControls();
 
-	// And whether DLSS Super Resolution came up with it.
-	if (CComQIPtr<IExFilterConfig> pIExFilterConfig = m_pVideoRenderer.p) {
-		LPWSTR pstr = nullptr;
-		std::wstring status;
-		if (S_OK == pIExFilterConfig->Flt_GetString("dlssSRStatus", &pstr, nullptr) && pstr) {
-			status = pstr;
-			CoTaskMemFree(pstr);
-		}
-		SetDlgItemTextW(IDC_STATIC38, status.empty() ? L"" : (L"Status: " + status).c_str());
-	}
+	UpdateStatuses();
 
 	return S_OK;
 }

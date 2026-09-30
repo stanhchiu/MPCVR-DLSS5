@@ -496,6 +496,7 @@ CDX11VideoProcessor::CDX11VideoProcessor(CMpcVideoRenderer* pFilter, const Setti
 	m_bDlssFG              = config.bDlssFG;
 	m_iDlssFGMultiplier    = config.iDlssFGMultiplier;
 	m_strDlssFGDllPath     = config.szDlssFGDllPath;
+	m_DlssFG.SetMultiplier(m_iDlssFGMultiplier);
 
 	m_nCurrentAdapter = -1;
 
@@ -3483,6 +3484,7 @@ void CDX11VideoProcessor::UpdateTexures()
 		m_TexDlssFGInterp.Release();
 		m_DlssFG.ReleaseFeature();
 	}
+	UpdateStatsStatic();
 }
 
 void CDX11VideoProcessor::UpdatePostScaleTexures()
@@ -4539,7 +4541,9 @@ void CDX11VideoProcessor::UpdateDlssFG()
 	if (!m_DlssFG.IsInitialised()) {
 		m_DlssFG.Init(m_pDevice, m_strDlssFGDllPath.c_str());
 	}
+	m_DlssFG.SetMultiplier(m_iDlssFGMultiplier);
 	m_bDlssFGActive = m_DlssFG.IsInitialised();
+	UpdateStatsStatic();
 }
 
 HRESULT CDX11VideoProcessor::DlssFGPass(Tex2D_t* pInputTexture, const CRect& rSrc, const int passIndex)
@@ -5437,7 +5441,9 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 		}
 		if (config.iDlssFGMultiplier != m_iDlssFGMultiplier) {
 			m_iDlssFGMultiplier = config.iDlssFGMultiplier;
+			m_DlssFG.SetMultiplier(m_iDlssFGMultiplier);
 			bUpdateFG = true;
+			UpdateStatsStatic();
 		}
 
 		if (bUpdateFG && m_pDevice) {

@@ -707,6 +707,9 @@ bool CDlssFG::Evaluate(const Params& p)
 	}
 
 	PushEvaluateParams(m_pParams, p, m_bResetPending || p.bReset);
+	if (p.iMultiplier > 1) {
+		m_iMultiplier = p.iMultiplier;
+	}
 	const NVSDK_NGX_Result r = CallEvaluate(m_pParams);
 
 	if (NGX_FAILED(r)) {
@@ -746,8 +749,12 @@ const wchar_t* CDlssFG::GetStateName() const
 
 std::wstring CDlssFG::GetStatusLine() const
 {
-	if (m_State == State::Ready && m_pFeature) {
-		return std::format(L"ready {}x{} 2x", m_featW, m_featH);
+	const int mult = m_iMultiplier > 1 ? m_iMultiplier : 2;
+	if (m_State == State::Ready) {
+		if (m_pFeature && m_featW && m_featH) {
+			return std::format(L"ready {}x{} {}x", m_featW, m_featH, mult);
+		}
+		return std::format(L"ready {}x", mult);
 	}
 	return GetStateName();
 }

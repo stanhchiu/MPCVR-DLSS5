@@ -77,6 +77,8 @@ public:
 	std::wstring     GetStatusLine() const;
 	std::wstring     GetInfoBlock() const;
 	const std::deque<std::wstring>& GetLog() const { return m_Log; }
+	int              GetMultiplier() const { return m_iMultiplier; }
+	void             SetMultiplier(int multiplier) { m_iMultiplier = multiplier > 1 ? multiplier : 2; }
 
 	static std::vector<std::wstring> CandidateDllPaths(const wchar_t* pConfigured);
 
@@ -158,6 +160,7 @@ private:
 
 	UINT m_featW = 0;
 	UINT m_featH = 0;
+	int  m_iMultiplier = 2;
 
 	std::wstring m_DllPath;
 	std::wstring m_DataPath;

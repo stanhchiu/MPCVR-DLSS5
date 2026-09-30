@@ -46,6 +46,7 @@ public:
 private:
 	void SetControls();
 	void EnableControls();
+	void UpdateStatuses();
 
 	HRESULT OnConnect(IUnknown* pUnknown) override;
 	HRESULT OnDisconnect() override;
