@@ -68,6 +68,12 @@ static std::wstring StabilizerText(int value)
 	return value ? std::to_wstring(value) : std::wstring(L"off");
 }
 
+// The attenuation is a 0..100 percentage shown as 0.00..1.00.
+static std::wstring AttenuationText(int value)
+{
+	return std::format(L"{:.2f}", (float)value / 100.0f);
+}
+
 static HWND CreateHintWindow(HWND parent, int timePop)
 {
 	HWND hhint = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASS, nullptr,
@@ -106,6 +112,7 @@ void CVRDlssPPage::SetControls()
 	Combo_SelectByItemData(m_hWnd, IDC_COMBO12, m_SetsPP.iDlssNRPreset);
 	Combo_SelectByItemData(m_hWnd, IDC_COMBO13, m_SetsPP.iDlssNRToggleKey);
 	Combo_SelectByItemData(m_hWnd, IDC_COMBO14, m_SetsPP.iDlssNRMotion);
+	Combo_SelectByItemData(m_hWnd, IDC_COMBO17, m_SetsPP.iDlssNRPasses);
 
 	const struct { int idSlider; int idEdit; int value; bool bStrength; } sliders[] = {
 		{ IDC_SLIDER3, IDC_EDIT3, m_SetsPP.iDlssNRIntensity,      true  },
@@ -118,6 +125,8 @@ void CVRDlssPPage::SetControls()
 		SendDlgItemMessageW(s.idSlider, TBM_SETPOS, TRUE, (LPARAM)s.value);
 		SetDlgItemTextW(s.idEdit, (s.bStrength ? StrengthText(s.value) : StabilizerText(s.value)).c_str());
 	}
+	SendDlgItemMessageW(IDC_SLIDER8, TBM_SETPOS, TRUE, (LPARAM)m_SetsPP.iDlssNRAttenuation);
+	SetDlgItemTextW(IDC_EDIT11, AttenuationText(m_SetsPP.iDlssNRAttenuation).c_str());
 
 	SetDlgItemTextW(IDC_EDIT7, m_SetsPP.szDlssNRDllPath);
 
@@ -142,8 +151,13 @@ void CVRDlssPPage::EnableControls()
 	for (const int id : { IDC_CHECK21, IDC_CHECK22, IDC_CHECK23, IDC_COMBO11, IDC_COMBO12,
 			IDC_SLIDER3, IDC_SLIDER4, IDC_SLIDER5, IDC_SLIDER6,
 			IDC_EDIT3, IDC_EDIT4, IDC_EDIT5, IDC_EDIT6,
-			IDC_STATIC21, IDC_STATIC22, IDC_STATIC23, IDC_STATIC24, IDC_STATIC25, IDC_STATIC26 }) {
+			IDC_STATIC21, IDC_STATIC22, IDC_STATIC23, IDC_STATIC24, IDC_STATIC25, IDC_STATIC26,
+			IDC_STATIC46, IDC_COMBO17 }) {
 		GetDlgItem(id).EnableWindow(bOn);
+	}
+	const BOOL bMultiPass = bOn && (m_SetsPP.iDlssNRPasses > 1);
+	for (const int id : { IDC_STATIC47, IDC_SLIDER8, IDC_EDIT11 }) {
+		GetDlgItem(id).EnableWindow(bMultiPass);
 	}
 	// The stabilizer works after the network, whatever its own history does.
 	for (const int id : { IDC_STATIC32, IDC_SLIDER7, IDC_EDIT8, IDC_STATIC33, IDC_STATIC34, IDC_COMBO14 }) {
@@ -208,6 +222,11 @@ HRESULT CVRDlssPPage::OnActivate()
 		Combo_AddStringData(m_hWnd, IDC_COMBO12, std::format(L"Preset {}", i).c_str(), i);
 	}
 
+	Combo_AddStringData(m_hWnd, IDC_COMBO17, L"1 pass (Default)", 1);
+	Combo_AddStringData(m_hWnd, IDC_COMBO17, L"2 passes", 2);
+	Combo_AddStringData(m_hWnd, IDC_COMBO17, L"3 passes", 3);
+	Combo_AddStringData(m_hWnd, IDC_COMBO17, L"4 passes", 4);
+
 	Combo_AddStringData(m_hWnd, IDC_COMBO14, L"NVIDIA Optical Flow", DLSSNR_MOTION_OPTICALFLOW);
 	Combo_AddStringData(m_hWnd, IDC_COMBO14, L"Shader detector (still areas)", DLSSNR_MOTION_DETECTOR);
 
@@ -243,6 +262,10 @@ HRESULT CVRDlssPPage::OnActivate()
 	SendDlgItemMessageW(IDC_SLIDER7, TBM_SETRANGE, 0, MAKELONG(DLSSNR_STAB_MIN, DLSSNR_STAB_MAX));
 	SendDlgItemMessageW(IDC_SLIDER7, TBM_SETLINESIZE, 0, 1);
 	SendDlgItemMessageW(IDC_SLIDER7, TBM_SETPAGESIZE, 0, 10);
+	SendDlgItemMessageW(IDC_SLIDER8, TBM_SETRANGE, 0, MAKELONG(DLSSNR_ATTEN_MIN, DLSSNR_ATTEN_MAX));
+	SendDlgItemMessageW(IDC_SLIDER8, TBM_SETTIC, 0, DLSSNR_ATTEN_DEF);
+	SendDlgItemMessageW(IDC_SLIDER8, TBM_SETLINESIZE, 0, 1);
+	SendDlgItemMessageW(IDC_SLIDER8, TBM_SETPAGESIZE, 0, 10);
 
 	{
 		// Show whether each session actually came up, and why not if it did not.
@@ -288,6 +311,14 @@ HRESULT CVRDlssPPage::OnActivate()
 	AddHint(IDC_COMBO12,
 		L"This DLL build ships a single network, so every preset\n"
 		"falls back to the same one. Kept for other builds.");
+	AddHint(IDC_COMBO17,
+		L"Runs the neural rendering network multiple times per frame.\n"
+		"Additional passes further refine details and suppress artifacts.\n"
+		"Passes > 1 run with temporal history isolated to avoid ghosting.");
+	AddHint(IDC_SLIDER8,
+		L"Multiplier applied to network strength on each subsequent pass.\n"
+		"1.00 maintains full strength on every pass; 0.50 halves strength each pass;\n"
+		"0.00 disables subsequent passes.");
 	AddHint(IDC_SLIDER7,
 		L"Steadies the network's effect over time, after it runs: only the\n"
 		"change it makes to the picture is filtered, then added to the current\n"
@@ -446,6 +477,7 @@ INT_PTR CVRDlssPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
 				{ IDC_COMBO14, &m_SetsPP.iDlssNRMotion },
 				{ IDC_COMBO15, &m_SetsPP.iDlssSRPreset },
 				{ IDC_COMBO16, &m_SetsPP.iDlssFGMultiplier },
+				{ IDC_COMBO17, &m_SetsPP.iDlssNRPasses },
 			};
 			for (const auto& c : combos) {
 				if (nID == c.id) {
@@ -481,6 +513,15 @@ INT_PTR CVRDlssPPage::OnReceiveMessage(HWND hwnd, UINT uMsg, WPARAM wParam, LPAR
 				}
 				return (LRESULT)1;
 			}
+		}
+		if ((HWND)lParam == GetDlgItem(IDC_SLIDER8)) {
+			const int value = (int)SendDlgItemMessageW(IDC_SLIDER8, TBM_GETPOS, 0, 0);
+			if (value != m_SetsPP.iDlssNRAttenuation) {
+				m_SetsPP.iDlssNRAttenuation = value;
+				SetDlgItemTextW(IDC_EDIT11, AttenuationText(value).c_str());
+				SetDirty();
+			}
+			return (LRESULT)1;
 		}
 	}
 
@@ -519,6 +560,8 @@ HRESULT CVRDlssPPage::OnApplyChanges()
 	TAKE_IF_CHANGED(iDlssNRMotion)
 	TAKE_IF_CHANGED(bDlssNRMotionVectors)
 	TAKE_IF_CHANGED(iDlssNRToggleKey)
+	TAKE_IF_CHANGED(iDlssNRPasses)
+	TAKE_IF_CHANGED(iDlssNRAttenuation)
 	TAKE_IF_CHANGED(bDlssSR)
 	TAKE_IF_CHANGED(iDlssSRPreset)
 	TAKE_IF_CHANGED(bDlssFG)

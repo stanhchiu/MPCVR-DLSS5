@@ -131,6 +131,14 @@ constexpr inline auto DLSSNR_STAB_DEF  = 100;
 constexpr inline auto DLSSNR_MOTION_DETECTOR    = 0;   // shader detector: still areas only
 constexpr inline auto DLSSNR_MOTION_OPTICALFLOW = 1;   // NVIDIA Optical Flow: moving areas too
 constexpr inline auto DLSSNR_MOTION_DEF         = DLSSNR_MOTION_OPTICALFLOW;
+// Multi-pass Neural Rendering: 1..4 passes per frame, with attenuation of network
+// strength on subsequent passes.
+constexpr inline auto DLSSNR_PASSES_MIN = 1;
+constexpr inline auto DLSSNR_PASSES_MAX = 4;
+constexpr inline auto DLSSNR_PASSES_DEF = 1;
+constexpr inline auto DLSSNR_ATTEN_MIN  = 0;
+constexpr inline auto DLSSNR_ATTEN_MAX  = 100;
+constexpr inline auto DLSSNR_ATTEN_DEF  = 50;
 
 // DLSS Super Resolution render preset, stored as the NGX number: 0 lets DLSS
 // choose for the scale, 10 J and 11 K are the first transformer models, 12 L and
@@ -209,6 +217,8 @@ struct Settings_t {
 	bool bDlssNRAfterUpscale;
 	// Virtual-key code that toggles DLSS during playback, 0 = no key.
 	int  iDlssNRToggleKey;
+	int  iDlssNRPasses;
+	int  iDlssNRAttenuation;
 	wchar_t szDlssNRDllPath[MAX_PATH];
 	// DLSS Super Resolution in place of the Upscaling method, set on the DLSS 5
 	// page and independent of DLSS 5 NR: nvngx_dlss.dll through the display
@@ -291,6 +301,8 @@ struct Settings_t {
 		iDlssNRMotion                   = DLSSNR_MOTION_DEF;
 		bDlssNRMotionVectors            = false;
 		iDlssNRToggleKey                = VK_F12;
+		iDlssNRPasses                   = DLSSNR_PASSES_DEF;
+		iDlssNRAttenuation              = DLSSNR_ATTEN_DEF;
 		szDlssNRDllPath[0]              = L'\0';
 		bDlssSR                         = false;
 		iDlssSRPreset                   = DLSSSR_PRESET_DEF;
@@ -321,6 +333,8 @@ inline void CopyDlssSettings(Settings_t& dst, const Settings_t& src)
 	dst.bDlssNRMotionVectors  = src.bDlssNRMotionVectors;
 	dst.bDlssNRAfterUpscale   = src.bDlssNRAfterUpscale;
 	dst.iDlssNRToggleKey      = src.iDlssNRToggleKey;
+	dst.iDlssNRPasses         = src.iDlssNRPasses;
+	dst.iDlssNRAttenuation    = src.iDlssNRAttenuation;
 	wcscpy_s(dst.szDlssNRDllPath, src.szDlssNRDllPath);
 	dst.bDlssSR               = src.bDlssSR;
 	dst.iDlssSRPreset         = src.iDlssSRPreset;

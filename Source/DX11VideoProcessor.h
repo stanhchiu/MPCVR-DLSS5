@@ -84,6 +84,7 @@ private:
 	Tex2D_t m_TexDither;
 	Tex2D_t m_TexDlssIn;  // RGBA16F copy of the converted frame, only when a format change is needed
 	Tex2D_t m_TexDlssOut; // RGBA16F NGX output, always UAV-capable
+	Tex2D_t m_TexDlssOrig; // RGBA16F copy of pre-NR input for stabilizer when multi-pass is active
 	Tex2D_t m_TexDlssFGIn;     // RGBA16F copy of the frame for DLSS FG
 	Tex2D_t m_TexDlssFGInterp; // RGBA16F NGX FG interpolated output
 
@@ -215,6 +216,8 @@ private:
 	int  m_iDlssNRStabilizer = DLSSNR_STAB_DEF;
 	int  m_iDlssNRMotion = DLSSNR_MOTION_DEF;
 	bool m_bDlssNRMotionVectors = false; // Optical Flow vectors to the network as well
+	int  m_iDlssNRPasses = DLSSNR_PASSES_DEF;
+	int  m_iDlssNRAttenuation = DLSSNR_ATTEN_DEF;
 	bool m_bDlssNewPicture = false;     // the next DLSS pass sees a new picture, not a redraw
 
 	// DLSS Super Resolution in place of the resize shaders when the picture grows.

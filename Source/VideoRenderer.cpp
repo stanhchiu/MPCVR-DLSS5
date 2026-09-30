@@ -81,6 +81,8 @@
 #define OPT_DlssNRNoHistory                L"DlssNRDisableTemporalHistory"
 #define OPT_DlssNRAfterUpscale             L"DlssNRApplyAfterUpscaling"
 #define OPT_DlssNRToggleKey                L"DlssNRToggleKey"
+#define OPT_DlssNRPasses                   L"DlssNRPasses"
+#define OPT_DlssNRAttenuation              L"DlssNRAttenuation"
 #define OPT_DlssNRDllPath                  L"DlssNRDllPath"
 #define OPT_DlssNRStabilizer               L"DlssNRStabilizerStrength"
 #define OPT_DlssNRMotion                   L"DlssNRMotionSource"
@@ -348,6 +350,12 @@ CMpcVideoRenderer::CMpcVideoRenderer(LPUNKNOWN pUnk, HRESULT* phr)
 		}
 		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRToggleKey, dw)) {
 			m_Sets.iDlssNRToggleKey = discard<int>((int)dw, VK_F12, 0, 0xFF);
+		}
+		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRPasses, dw)) {
+			m_Sets.iDlssNRPasses = discard<int>((int)dw, DLSSNR_PASSES_DEF, DLSSNR_PASSES_MIN, DLSSNR_PASSES_MAX);
+		}
+		if (ERROR_SUCCESS == key.QueryDWORDValue(OPT_DlssNRAttenuation, dw)) {
+			m_Sets.iDlssNRAttenuation = discard<int>((int)dw, DLSSNR_ATTEN_DEF, DLSSNR_ATTEN_MIN, DLSSNR_ATTEN_MAX);
 		}
 		{
 			ULONG nChars = std::size(m_Sets.szDlssNRDllPath);
@@ -1545,6 +1553,8 @@ STDMETHODIMP CMpcVideoRenderer::SaveSettings()
 		key.SetDWORDValue(OPT_DlssNRMotion,        m_Sets.iDlssNRMotion);
 		key.SetDWORDValue(OPT_DlssNRMotionVectors, m_Sets.bDlssNRMotionVectors);
 		key.SetDWORDValue(OPT_DlssNRToggleKey,     m_Sets.iDlssNRToggleKey);
+		key.SetDWORDValue(OPT_DlssNRPasses,        m_Sets.iDlssNRPasses);
+		key.SetDWORDValue(OPT_DlssNRAttenuation,   m_Sets.iDlssNRAttenuation);
 		key.SetStringValue(OPT_DlssNRDllPath,      m_Sets.szDlssNRDllPath);
 		key.SetDWORDValue(OPT_DlssSR,              m_Sets.bDlssSR);
 		key.SetDWORDValue(OPT_DlssSRPreset,        m_Sets.iDlssSRPreset);

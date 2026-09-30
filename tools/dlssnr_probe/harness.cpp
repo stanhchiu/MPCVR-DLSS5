@@ -1235,6 +1235,37 @@ int wmain(int argc, wchar_t** argv)
 	Check(blank == 0, "output never blank");
 	Check(SUCCEEDED(dev->GetDeviceRemovedReason()), "D3D11 device survived");
 
+	// ---- multi-pass NR with attenuation -----------------------------------
+	Head("Multi-pass NR with attenuation");
+	int mpEvaluated = 0, mpFailed = 0;
+	for (int passes = 1; passes <= 4; passes++) {
+		for (float atten : { 0.0f, 0.25f, 0.50f, 0.75f, 1.0f }) {
+			FillInput(dev, ctx, texIn.pTexture, 0.5f);
+			CDlssNR::Params cur = params;
+			for (int p = 0; p < passes; p++) {
+				if (p > 0) {
+					if (atten <= 0.0f) break;
+					cur.fIntensity *= atten;
+					cur.fLocalTone *= atten;
+					cur.fLocalStructure *= atten;
+					cur.fSkinStructure *= atten;
+					cur.bNoHistory = true;
+					ctx->CopyResource(texIn.pTexture, texOut.pTexture);
+				}
+				if (dlss.Evaluate(cur)) {
+					mpEvaluated++;
+				} else {
+					mpFailed++;
+				}
+			}
+		}
+	}
+	printf("  multi-pass evaluated %d passes (passes 1..4, atten 0.0..1.0), failed %d\n", mpEvaluated, mpFailed);
+	Check(mpFailed == 0, "all multi-pass iterations evaluated successfully");
+	Check(mpEvaluated > 0, "multi-pass evaluation counter valid");
+	Check(OutputIsNonZero(dev, ctx, texOut.pTexture), "multi-pass output non-zero");
+	Check(SUCCEEDED(dev->GetDeviceRemovedReason()), "D3D11 survived multi-pass execution");
+
 	// ---- teardown while work is in flight ---------------------------------
 	Head("Teardown");
 	FillInput(dev, ctx, texIn.pTexture, 0.5f);

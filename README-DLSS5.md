@@ -646,6 +646,8 @@ it serves the luma prescalers as much as DLSS, so it sits on the **Settings** pa
 | Local tone | 0.30 | Low on purpose: the local terms amplify frame-to-frame variation |
 | Local struct. | 0.50 | |
 | Skin struct. | 0.90 | |
+| Passes | 1 pass (Default) | 1, 2, 3, or 4 passes per frame. Passes > 1 run with temporal history isolated to avoid ghosting |
+| Attenuation | 0.50 | 0.00–1.00 multiplier applied to network strengths on each subsequent pass (0.50 halves strength each pass) |
 | Stabilizer | 100 | 0–100. Where the history is trusted, the current picture weighs from 1 down to 0.25 at 100, the measured setting. 0 runs nothing. Applies live |
 | Motion | NVIDIA Optical Flow | Or *Shader detector (still areas)*. Applies on the next picture |
 | Send the motion vectors to DLSS | off | Optical Flow only. Steadier, but the network renders differently around moving objects |

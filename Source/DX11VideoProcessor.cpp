@@ -487,6 +487,9 @@ CDX11VideoProcessor::CDX11VideoProcessor(CMpcVideoRenderer* pFilter, const Setti
 	m_iDlssNRStabilizer    = config.iDlssNRStabilizer;
 	m_iDlssNRMotion        = config.iDlssNRMotion;
 	m_bDlssNRMotionVectors = config.bDlssNRMotionVectors;
+	m_iDlssNRPasses        = config.iDlssNRPasses;
+	m_iDlssNRAttenuation   = config.iDlssNRAttenuation;
+	m_bDlssRenderAhead     = config.bDlssRenderAhead;
 	m_bDlssSR              = config.bDlssSR;
 	m_iDlssSRPreset        = config.iDlssSRPreset;
 	m_strDlssSRDllPath     = config.szDlssSRDllPath;
@@ -752,6 +755,7 @@ void CDX11VideoProcessor::ReleaseVP()
 	m_TexsPostScale.Release();
 	m_TexDlssIn.Release();
 	m_TexDlssOut.Release();
+	m_TexDlssOrig.Release();
 	m_TexDlssFGIn.Release();
 	m_TexDlssFGInterp.Release();
 	m_DlssNR.ReleaseFeature();
@@ -912,6 +916,9 @@ UINT CDX11VideoProcessor::GetPostScaleSteps()
 {
 	UINT nSteps = m_pPostScaleShaders.size();
 	if (m_bDlssNRActive && m_bDlssNRAfterUpscale) {
+		nSteps++;
+	}
+	if (m_bDlssFGActive) {
 		nSteps++;
 	}
 	if (m_pPSCorrection) {
@@ -3069,7 +3076,7 @@ HRESULT CDX11VideoProcessor::Render(int field, const REFERENCE_TIME frameStartTi
 	}
 
 	if (!m_renderRect.IsRectEmpty()) {
-		hr = Process(pBackBuffer, m_srcRect, m_videoRect, m_FieldDrawn == 2);
+		hr = Process(pBackBuffer, m_srcRect, m_videoRect, m_FieldDrawn ? m_FieldDrawn : 1);
 	}
 
 	if (bTimeDlss) {
@@ -3311,6 +3318,8 @@ void CDX11VideoProcessor::UpdateTexures()
 		return;
 	}
 
+	UpdateRenderRect();
+
 	// TODO: try making w and h a multiple of 128.
 	HRESULT hr = S_OK;
 
@@ -3367,104 +3376,107 @@ void CDX11VideoProcessor::UpdateTexures()
 		if (!w || !h) {
 			m_TexDlssIn.Release();
 			m_TexDlssOut.Release();
+			m_TexDlssOrig.Release();
 			m_DlssNR.ReleaseFeature();
 			m_DlssNR.SetGuides(CDlssNR::Guides{}); // before the shared motion vectors go away
 			m_DlssStabilizer.Release();
-			return;
-		}
-
-		// The stabilizer follows the working size, and motion vectors of another
-		// size must not sit in the parameter block when the feature is created.
-		// DlssNRPass makes a new one.
-		if (m_DlssStabilizer.IsCreated() && !m_DlssStabilizer.Matches(w, h, DlssMotionSource())) {
-			m_DlssNR.SetGuides(CDlssNR::Guides{});
-			m_DlssStabilizer.Release();
-		}
-
-		ID3D11Texture2D* const pDlssInBefore = m_TexDlssIn.pTexture;
-		ID3D11Texture2D* const pDlssOutBefore = m_TexDlssOut.pTexture;
-
-		hr = m_TexDlssIn.CheckCreate(m_pDevice, DXGI_FORMAT_R16G16B16A16_FLOAT, w, h, Tex2D_DefaultShaderRTargetUAVShared);
-		if (SUCCEEDED(hr)) {
-			hr = m_TexDlssOut.CheckCreate(m_pDevice, DXGI_FORMAT_R16G16B16A16_FLOAT, w, h, Tex2D_DefaultShaderRTargetUAVShared);
-		}
-
-		if (FAILED(hr) || !m_TexDlssIn.pTexture || !m_TexDlssOut.pTexture) {
-			DLog(L"CDX11VideoProcessor::UpdateTexures() : failed to create DLSS textures");
-			m_bDlssNRActive = false;
-		} else if (!m_DlssNR.CreateFeature(m_TexDlssIn.pTexture, m_TexDlssOut.pTexture, w, h, m_DlssParams)) {
-			m_bDlssNRActive = false;
 		} else {
-			// Until the first Evaluate lands these hold whatever was in memory;
-			// sampling that is what turned the paused frame green.
-			if (m_TexDlssIn.pTexture != pDlssInBefore || m_TexDlssOut.pTexture != pDlssOutBefore) {
-				if (m_pFilter->m_filterState != State_Running) {
-					for (ID3D11Texture2D* pTex : { m_TexDlssIn.pTexture.p, m_TexDlssOut.pTexture.p }) {
-						CComPtr<ID3D11RenderTargetView> pRTV;
-						if (S_OK == m_pDevice->CreateRenderTargetView(pTex, nullptr, &pRTV)) {
-							const FLOAT black[4] = { 0, 0, 0, 1 };
-							m_pDeviceContext->ClearRenderTargetView(pRTV, black);
+			// The stabilizer follows the working size, and motion vectors of another
+			// size must not sit in the parameter block when the feature is created.
+			// DlssNRPass makes a new one.
+			if (m_DlssStabilizer.IsCreated() && !m_DlssStabilizer.Matches(w, h, DlssMotionSource())) {
+				m_DlssNR.SetGuides(CDlssNR::Guides{});
+				m_DlssStabilizer.Release();
+			}
+
+			ID3D11Texture2D* const pDlssInBefore = m_TexDlssIn.pTexture;
+			ID3D11Texture2D* const pDlssOutBefore = m_TexDlssOut.pTexture;
+
+			hr = m_TexDlssIn.CheckCreate(m_pDevice, DXGI_FORMAT_R16G16B16A16_FLOAT, w, h, Tex2D_DefaultShaderRTargetUAVShared);
+			if (SUCCEEDED(hr)) {
+				hr = m_TexDlssOut.CheckCreate(m_pDevice, DXGI_FORMAT_R16G16B16A16_FLOAT, w, h, Tex2D_DefaultShaderRTargetUAVShared);
+			}
+
+			if (FAILED(hr) || !m_TexDlssIn.pTexture || !m_TexDlssOut.pTexture) {
+				DLog(L"CDX11VideoProcessor::UpdateTexures() : failed to create DLSS textures");
+				m_TexDlssIn.Release();
+				m_TexDlssOut.Release();
+				m_TexDlssOrig.Release();
+				m_DlssNR.ReleaseFeature();
+				m_DlssNR.SetGuides(CDlssNR::Guides{});
+				m_DlssStabilizer.Release();
+			} else if (!m_DlssNR.CreateFeature(m_TexDlssIn.pTexture, m_TexDlssOut.pTexture, w, h, m_DlssParams)) {
+				DLog(L"CDX11VideoProcessor::UpdateTexures() : failed to create DLSS NR feature");
+				m_TexDlssIn.Release();
+				m_TexDlssOut.Release();
+				m_TexDlssOrig.Release();
+				m_DlssNR.ReleaseFeature();
+				m_DlssNR.SetGuides(CDlssNR::Guides{});
+				m_DlssStabilizer.Release();
+			} else {
+				// Until the first Evaluate lands these hold whatever was in memory;
+				// sampling that is what turned the paused frame green.
+				if (m_TexDlssIn.pTexture != pDlssInBefore || m_TexDlssOut.pTexture != pDlssOutBefore) {
+					if (m_pFilter->m_filterState != State_Running) {
+						for (ID3D11Texture2D* pTex : { m_TexDlssIn.pTexture.p, m_TexDlssOut.pTexture.p }) {
+							CComPtr<ID3D11RenderTargetView> pRTV;
+							if (S_OK == m_pDevice->CreateRenderTargetView(pTex, nullptr, &pRTV)) {
+								const FLOAT black[4] = { 0, 0, 0, 1 };
+								m_pDeviceContext->ClearRenderTargetView(pRTV, black);
+							}
 						}
 					}
 				}
 			}
 		}
-
-		if (!m_bDlssNRActive) {
-			m_TexDlssIn.Release();
-			m_TexDlssOut.Release();
-			m_DlssNR.SetGuides(CDlssNR::Guides{}); // before the shared motion vectors go away
-			m_DlssStabilizer.Release();
-		}
 	} else {
 		m_TexDlssIn.Release();
 		m_TexDlssOut.Release();
+		m_TexDlssOrig.Release();
 		m_DlssNR.ReleaseFeature();
 		m_DlssNR.SetGuides(CDlssNR::Guides{});
 		m_DlssStabilizer.Release();
 	}
 
-	if (m_bDlssFGActive && m_TexConvertOutput.pTexture) {
-		const UINT w = (UINT)m_srcRectWidth;
-		const UINT h = (UINT)m_srcRectHeight;
+	if (m_bDlssFGActive) {
+		const UINT w = (UINT)m_renderRect.Width();
+		const UINT h = (UINT)m_renderRect.Height();
 		if (!w || !h) {
 			m_TexDlssFGIn.Release();
 			m_TexDlssFGInterp.Release();
 			m_DlssFG.ReleaseFeature();
-			return;
-		}
-
-		ID3D11Texture2D* const pDlssFGInBefore = m_TexDlssFGIn.pTexture;
-		ID3D11Texture2D* const pDlssFGInterpBefore = m_TexDlssFGInterp.pTexture;
-
-		hr = m_TexDlssFGIn.CheckCreate(m_pDevice, DXGI_FORMAT_R16G16B16A16_FLOAT, w, h, Tex2D_DefaultShaderRTargetUAVShared);
-		if (SUCCEEDED(hr)) {
-			hr = m_TexDlssFGInterp.CheckCreate(m_pDevice, DXGI_FORMAT_R16G16B16A16_FLOAT, w, h, Tex2D_DefaultShaderRTargetUAVShared);
-		}
-
-		if (FAILED(hr) || !m_TexDlssFGIn.pTexture || !m_TexDlssFGInterp.pTexture) {
-			DLog(L"CDX11VideoProcessor::UpdateTexures() : failed to create DLSS FG textures");
-			m_bDlssFGActive = false;
-		} else if (!m_DlssFG.CreateFeature(m_TexDlssFGIn.pTexture, m_TexDlssFGInterp.pTexture, w, h)) {
-			m_bDlssFGActive = false;
 		} else {
-			if (m_TexDlssFGIn.pTexture != pDlssFGInBefore || m_TexDlssFGInterp.pTexture != pDlssFGInterpBefore) {
-				if (m_pFilter->m_filterState != State_Running) {
-					for (ID3D11Texture2D* pTex : { m_TexDlssFGIn.pTexture.p, m_TexDlssFGInterp.pTexture.p }) {
-						CComPtr<ID3D11RenderTargetView> pRTV;
-						if (S_OK == m_pDevice->CreateRenderTargetView(pTex, nullptr, &pRTV)) {
-							const FLOAT black[4] = { 0, 0, 0, 1 };
-							m_pDeviceContext->ClearRenderTargetView(pRTV, black);
+			ID3D11Texture2D* const pDlssFGInBefore = m_TexDlssFGIn.pTexture;
+			ID3D11Texture2D* const pDlssFGInterpBefore = m_TexDlssFGInterp.pTexture;
+
+			hr = m_TexDlssFGIn.CheckCreate(m_pDevice, DXGI_FORMAT_R16G16B16A16_FLOAT, w, h, Tex2D_DefaultShaderRTargetUAVShared);
+			if (SUCCEEDED(hr)) {
+				hr = m_TexDlssFGInterp.CheckCreate(m_pDevice, DXGI_FORMAT_R16G16B16A16_FLOAT, w, h, Tex2D_DefaultShaderRTargetUAVShared);
+			}
+
+			if (FAILED(hr) || !m_TexDlssFGIn.pTexture || !m_TexDlssFGInterp.pTexture) {
+				DLog(L"CDX11VideoProcessor::UpdateTexures() : failed to create DLSS FG textures");
+				m_TexDlssFGIn.Release();
+				m_TexDlssFGInterp.Release();
+				m_DlssFG.ReleaseFeature();
+			} else if (!m_DlssFG.CreateFeature(m_TexDlssFGIn.pTexture, m_TexDlssFGInterp.pTexture, w, h)) {
+				DLog(L"CDX11VideoProcessor::UpdateTexures() : failed to create DLSS FG feature");
+				m_TexDlssFGIn.Release();
+				m_TexDlssFGInterp.Release();
+				m_DlssFG.ReleaseFeature();
+			} else {
+				if (m_TexDlssFGIn.pTexture != pDlssFGInBefore || m_TexDlssFGInterp.pTexture != pDlssFGInterpBefore) {
+					if (m_pFilter->m_filterState != State_Running) {
+						for (ID3D11Texture2D* pTex : { m_TexDlssFGIn.pTexture.p, m_TexDlssFGInterp.pTexture.p }) {
+							CComPtr<ID3D11RenderTargetView> pRTV;
+							if (S_OK == m_pDevice->CreateRenderTargetView(pTex, nullptr, &pRTV)) {
+								const FLOAT black[4] = { 0, 0, 0, 1 };
+								m_pDeviceContext->ClearRenderTargetView(pRTV, black);
+							}
 						}
 					}
 				}
 			}
-		}
-
-		if (!m_bDlssFGActive) {
-			m_TexDlssFGIn.Release();
-			m_TexDlssFGInterp.Release();
-			m_DlssFG.ReleaseFeature();
 		}
 	} else {
 		m_TexDlssFGIn.Release();
@@ -4199,8 +4211,23 @@ void CDX11VideoProcessor::UpdateDlssNR()
 // input texture is left untouched and the chain runs exactly as before.
 HRESULT CDX11VideoProcessor::DlssNRPass(Tex2D_t* pInputTexture, const CRect& rSrc, Tex2D_t** ppResult)
 {
-	if (!pInputTexture || !ppResult || !m_TexDlssIn.pTexture || !m_TexDlssOut.pTexture
-			|| !m_DlssNR.IsFeatureReady()) {
+	if (!pInputTexture || !ppResult) {
+		return E_FAIL;
+	}
+
+	const UINT srcW = (UINT)rSrc.Width();
+	const UINT srcH = (UINT)rSrc.Height();
+	if (!srcW || !srcH) {
+		return E_FAIL;
+	}
+
+	// If textures or feature are not ready, or if the size has changed, ensure textures and feature match.
+	if (!m_TexDlssIn.pTexture || !m_TexDlssOut.pTexture || !m_DlssNR.IsFeatureReady()
+			|| m_TexDlssOut.desc.Width != srcW || m_TexDlssOut.desc.Height != srcH) {
+		UpdateTexures();
+	}
+
+	if (!m_TexDlssIn.pTexture || !m_TexDlssOut.pTexture || !m_DlssNR.IsFeatureReady()) {
 		return E_FAIL;
 	}
 
@@ -4208,11 +4235,10 @@ HRESULT CDX11VideoProcessor::DlssNRPass(Tex2D_t* pInputTexture, const CRect& rSr
 	const UINT h = m_TexDlssOut.desc.Height;
 
 	// The pass must never change the geometry. If the region we were handed is
-	// not exactly the working size, blitting it would rescale the picture; skip
-	// instead and let UpdateTexures catch up on the next frame.
-	if ((UINT)rSrc.Width() != w || (UINT)rSrc.Height() != h) {
+	// not exactly the working size, blitting it would rescale the picture; skip.
+	if (srcW != w || srcH != h) {
 		DLogIf(m_bDlssNRActive, L"CDX11VideoProcessor::DlssNRPass() : {}x{} source into {}x{} textures, skipping",
-			rSrc.Width(), rSrc.Height(), w, h);
+			srcW, srcH, w, h);
 		return E_FAIL;
 	}
 
@@ -4274,28 +4300,58 @@ HRESULT CDX11VideoProcessor::DlssNRPass(Tex2D_t* pInputTexture, const CRect& rSr
 		m_DlssNR.SetGuides(guides);
 	}
 
-	// Unbind before handing the textures to the other device.
-	ID3D11ShaderResourceView* nullSRVs[4] = {};
-	m_pDeviceContext->PSSetShaderResources(0, std::size(nullSRVs), nullSRVs);
-	m_pDeviceContext->OMSetRenderTargets(0, nullptr, nullptr);
+	const int numPasses = std::clamp(m_iDlssNRPasses, 1, DLSSNR_PASSES_MAX);
+	const float attenuation = (float)std::clamp(m_iDlssNRAttenuation, 0, 100) / 100.0f;
 
-	if (!m_DlssNR.Evaluate(m_DlssParams)) {
-		DLog(L"CDX11VideoProcessor::DlssNRPass() : Evaluate failed, recreating feature");
-		m_DlssNR.ReleaseFeature();
-		if (m_TexDlssIn.pTexture && m_TexDlssOut.pTexture) {
-			m_DlssNR.CreateFeature(m_TexDlssIn.pTexture, m_TexDlssOut.pTexture, w, h, m_DlssParams);
+	if (bApplyStabilize && numPasses > 1) {
+		m_TexDlssOrig.CheckCreate(m_pDevice, DXGI_FORMAT_R16G16B16A16_FLOAT, w, h, Tex2D_DefaultShader);
+		if (m_TexDlssOrig.pTexture) {
+			m_pDeviceContext->CopyResource(m_TexDlssOrig.pTexture, m_TexDlssIn.pTexture);
 		}
-		m_bDlssNewPicture = true;
-		UpdateStatsStatic();
-		return E_FAIL;
 	}
-	// The network's own time. Its wait for the input is the Direct3D 11 work queued
-	// before it -- the copy, and Optical Flow, which has its own timestamps.
-	m_DlssNRTimes.Add(m_DlssNR.LastTiming().recordMs + m_DlssNR.LastTiming().gpuWaitMs);
+
+	CDlssNR::Params currentParams = m_DlssParams;
+
+	for (int pass = 0; pass < numPasses; ++pass) {
+		if (pass > 0) {
+			if (attenuation <= 0.0f) {
+				break;
+			}
+			currentParams.fIntensity      *= attenuation;
+			currentParams.fLocalTone      *= attenuation;
+			currentParams.fLocalStructure *= attenuation;
+			currentParams.fSkinStructure  *= attenuation;
+			currentParams.bNoHistory = true;
+
+			m_pDeviceContext->CopyResource(m_TexDlssIn.pTexture, m_TexDlssOut.pTexture);
+		}
+
+		// Unbind before handing the textures to the other device.
+		ID3D11ShaderResourceView* nullSRVs[4] = {};
+		m_pDeviceContext->PSSetShaderResources(0, std::size(nullSRVs), nullSRVs);
+		m_pDeviceContext->OMSetRenderTargets(0, nullptr, nullptr);
+
+		if (!m_DlssNR.Evaluate(currentParams)) {
+			DLog(L"CDX11VideoProcessor::DlssNRPass() : Evaluate failed on pass %d, recreating feature", pass + 1);
+			m_DlssNR.ReleaseFeature();
+			if (m_TexDlssIn.pTexture && m_TexDlssOut.pTexture) {
+				m_DlssNR.CreateFeature(m_TexDlssIn.pTexture, m_TexDlssOut.pTexture, w, h, m_DlssParams);
+			}
+			m_bDlssNewPicture = true;
+			UpdateStatsStatic();
+			return E_FAIL;
+		}
+		// The network's own time. Its wait for the input is the Direct3D 11 work queued
+		// before it -- the copy, and Optical Flow, which has its own timestamps.
+		m_DlssNRTimes.Add(m_DlssNR.LastTiming().recordMs + m_DlssNR.LastTiming().gpuWaitMs);
+	}
 
 	if (bApplyStabilize) {
 		m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::NRStabilize);
-		m_DlssStabilizer.Stabilize(m_pDeviceContext, m_TexDlssIn.pShaderResource, m_TexDlssOut.pShaderResource,
+		ID3D11ShaderResourceView* const pOriginalSRV = (numPasses > 1 && m_TexDlssOrig.pShaderResource)
+			? m_TexDlssOrig.pShaderResource.p
+			: m_TexDlssIn.pShaderResource.p;
+		m_DlssStabilizer.Stabilize(m_pDeviceContext, pOriginalSRV, m_TexDlssOut.pShaderResource,
 			(float)m_iDlssNRStabilizer / DLSSNR_STAB_MAX, bNewPicture);
 		m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::NRStabilize);
 		*ppResult = m_DlssStabilizer.GetResult();
@@ -4488,18 +4544,21 @@ void CDX11VideoProcessor::UpdateDlssFG()
 
 HRESULT CDX11VideoProcessor::DlssFGPass(Tex2D_t* pInputTexture, const CRect& rSrc, const int passIndex)
 {
-	if (!m_TexDlssFGIn.pTexture || !m_TexDlssFGInterp.pTexture
-			|| !m_DlssFG.IsFeatureReady()) {
+	const UINT w = (UINT)rSrc.Width();
+	const UINT h = (UINT)rSrc.Height();
+	if (!w || !h) {
 		return E_FAIL;
 	}
 
-	const UINT w = m_TexDlssFGIn.desc.Width;
-	const UINT h = m_TexDlssFGIn.desc.Height;
-
-	if ((UINT)rSrc.Width() != w || (UINT)rSrc.Height() != h) {
-		DLogIf(m_bDlssFGActive, L"CDX11VideoProcessor::DlssFGPass() : {}x{} source into {}x{} textures, skipping",
-			rSrc.Width(), rSrc.Height(), w, h);
-		return E_FAIL;
+	if (!m_TexDlssFGIn.pTexture || !m_TexDlssFGInterp.pTexture
+			|| !m_DlssFG.IsFeatureReady()
+			|| m_TexDlssFGIn.desc.Width != w || m_TexDlssFGIn.desc.Height != h) {
+		if (m_bDlssFGActive) {
+			UpdateTexures();
+		}
+		if (!m_DlssFG.IsFeatureReady() || m_TexDlssFGIn.desc.Width != w || m_TexDlssFGIn.desc.Height != h) {
+			return E_FAIL;
+		}
 	}
 
 	if (passIndex == 1) {
@@ -4515,6 +4574,13 @@ HRESULT CDX11VideoProcessor::DlssFGPass(Tex2D_t* pInputTexture, const CRect& rSr
 			pVectors = m_DlssStabilizer.GetMotionVectors();
 		} else if (m_DlssSRMotion.IsCreated()) {
 			pVectors = m_DlssSRMotion.GetMotionVectors();
+		}
+		if (pVectors) {
+			D3D11_TEXTURE2D_DESC descV = {};
+			pVectors->GetDesc(&descV);
+			if (descV.Width != w || descV.Height != h) {
+				pVectors = nullptr;
+			}
 		}
 		m_DlssFG.SetGuides(pVectors, nullptr);
 	}
@@ -4558,16 +4624,118 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 	const bool bDlssFGHere = m_bDlssFGActive && bAllowDlss && (m_SampleFormat == D3D11_VIDEO_FRAME_FORMAT_PROGRESSIVE);
 	const bool bSecondField = (passField == 2) && !bDlssFGHere;
 
-	if (bDlssFGHere && passField == m_iDlssFGMultiplier && m_TexDlssFGIn.pTexture) {
-		pInputTexture = &m_TexDlssFGIn;
-		rSrc.SetRect(0, 0, m_TexDlssFGIn.desc.Width, m_TexDlssFGIn.desc.Height);
-		rotation = 0;
-		m_bDlssFGFirstFrame = false;
-	}
-	else if (bDlssFGHere && passField > 1 && passField < m_iDlssFGMultiplier && m_TexDlssFGIn.pTexture) {
-		pInputTexture = &m_TexDlssFGIn; // dummy for DlssFGPass
-		rSrc.SetRect(0, 0, m_TexDlssFGIn.desc.Width, m_TexDlssFGIn.desc.Height);
-		rotation = 0;
+	if (bDlssFGHere && passField > 1) {
+		Tex2D_t* pTexPost = m_TexsPostScale.Size() ? m_TexsPostScale.GetFirstTex() : nullptr;
+		const UINT wPost = pTexPost ? pTexPost->desc.Width : (UINT)m_windowRect.Width();
+		const UINT hPost = pTexPost ? pTexPost->desc.Height : (UINT)m_windowRect.Height();
+		CRect rect;
+		rect.IntersectRect(dstRect, CRect(0, 0, wPost, hPost));
+
+		Tex2D_t* pFGResult = nullptr;
+		if (passField < m_iDlssFGMultiplier) {
+			if (SUCCEEDED(DlssFGPass(nullptr, rect, passField))) {
+				pFGResult = &m_TexDlssFGInterp;
+			} else {
+				pFGResult = &m_TexDlssFGIn;
+			}
+		} else {
+			pFGResult = &m_TexDlssFGIn;
+			m_bDlssFGFirstFrame = false;
+		}
+
+		if (!pFGResult || !pFGResult->pTexture) {
+			return E_FAIL;
+		}
+
+		UINT postFGSteps = m_pPostScaleShaders.size();
+		if (m_pPSCorrection) postFGSteps++;
+		if (m_pPSHDR10ToneMapping) postFGSteps++;
+		if (m_pPSHalfOUtoInterlace) postFGSteps++;
+		if (m_bFinalPass) postFGSteps++;
+
+		const CRect rFG(0, 0, pFGResult->desc.Width, pFGResult->desc.Height);
+
+		if (postFGSteps == 0) {
+			hr = TextureCopyRect(*pFGResult, pRenderTarget, rFG, rect, m_pPS_Simple, nullptr, 0, false);
+			return hr;
+		}
+
+		UINT step = 0;
+		Tex2D_t* pTex = m_TexsPostScale.GetFirstTex();
+		ID3D11Texture2D* pRT = pTex->pTexture;
+
+		auto StepSetting = [&]() {
+			step++;
+			pInputTexture = pTex;
+			if (step < postFGSteps) {
+				pTex = m_TexsPostScale.GetNextTex();
+				pRT = pTex->pTexture;
+			} else {
+				pRT = pRenderTarget;
+			}
+		};
+
+		hr = TextureCopyRect(*pFGResult, pRT, rFG, rect, m_pPS_Simple, nullptr, 0, false);
+
+		if (m_pPSCorrection) {
+			StepSetting();
+			hr = TextureCopyRect(*pInputTexture, pRT, rect, rect, m_pPSCorrection, m_pCorrectionConstants, 0, false);
+		}
+
+		if (m_pPSHDR10ToneMapping) {
+			StepSetting();
+			if (m_pDoViDynamicConstants) {
+				m_pDeviceContext->PSSetConstantBuffers(1, 1, &m_pDoViDynamicConstants.p);
+			}
+			hr = TextureCopyRect(*pInputTexture, pRT, rect, rect, m_pPSHDR10ToneMapping, m_pHDR10ToneMappingConstants, 0, false);
+		}
+
+		if (m_pPostScaleShaders.size()) {
+			static __int64 counter = 0;
+			static long start = GetTickCount();
+			long stop = GetTickCount();
+			long diff = stop - start;
+			if (diff >= 10 * 60 * 1000) {
+				start = stop;
+			}
+			PS_EXTSHADER_CONSTANTS ConstData = {
+				{1.0f / pTex->desc.Width, 1.0f / pTex->desc.Height },
+				{(float)pTex->desc.Width, (float)pTex->desc.Height},
+				counter++,
+				(float)diff / 1000,
+				0, 0
+			};
+			m_pDeviceContext->UpdateSubresource(m_pPostScaleConstants, 0, nullptr, &ConstData, 0, 0);
+
+			for (UINT idx = 0; idx < m_pPostScaleShaders.size(); idx++) {
+				StepSetting();
+				hr = TextureCopyRect(*pInputTexture, pRT, rect, rect, m_pPostScaleShaders[idx].shader, m_pPostScaleConstants, 0, false);
+			}
+		}
+
+		if (m_pPSHalfOUtoInterlace) {
+			DrawSubtitles(pRT);
+			StepSetting();
+			FLOAT ConstData[] = {
+				(float)pTex->desc.Height, 0,
+				(float)dstRect.top / pTex->desc.Height, (float)dstRect.bottom / pTex->desc.Height,
+			};
+			D3D11_MAPPED_SUBRESOURCE mr;
+			hr = m_pDeviceContext->Map(m_pHalfOUtoInterlaceConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &mr);
+			if (SUCCEEDED(hr)) {
+				memcpy(mr.pData, &ConstData, sizeof(ConstData));
+				m_pDeviceContext->Unmap(m_pHalfOUtoInterlaceConstantBuffer, 0);
+			}
+			hr = TextureCopyRect(*pInputTexture, pRT, rect, rect, m_pPSHalfOUtoInterlace, m_pHalfOUtoInterlaceConstantBuffer, 0, false);
+		}
+
+		if (m_bFinalPass) {
+			StepSetting();
+			hr = FinalPass(*pTex, pRT, rect, rect);
+			m_bDitherUsed = true;
+		}
+
+		return hr;
 	}
 	else if (m_D3D11VP.IsReady()) {
 		if (!(m_iSwapEffect == SWAPEFFECT_Discard && (m_VendorId == PCIV_AMDATI || m_VendorId == PCIV_INTEL))) {
@@ -4605,23 +4773,6 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 		if (S_OK == DlssNRPass(pInputTexture, rSrc, &pDlssResult) && pDlssResult) {
 			pInputTexture = pDlssResult;
 			rSrc.SetRect(0, 0, pDlssResult->desc.Width, pDlssResult->desc.Height);
-		}
-	}
-
-	if (bDlssFGHere && passField < m_iDlssFGMultiplier) {
-		if (m_bDlssFGFirstFrame) {
-			if (passField == 1) {
-				DlssFGPass(pInputTexture, rSrc, passField);
-			}
-			if (m_TexDlssFGIn.pTexture) {
-				pInputTexture = &m_TexDlssFGIn;
-				rSrc.SetRect(0, 0, m_TexDlssFGIn.desc.Width, m_TexDlssFGIn.desc.Height);
-			}
-		} else {
-			if (SUCCEEDED(DlssFGPass(pInputTexture, rSrc, passField))) {
-				pInputTexture = &m_TexDlssFGInterp;
-				rSrc.SetRect(0, 0, m_TexDlssFGInterp.desc.Width, m_TexDlssFGInterp.desc.Height);
-			}
 		}
 	}
 
@@ -4691,6 +4842,17 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 				// last valid row -- the band of duplicated lines.
 				const CRect rDlss(0, 0, pDlssResult->desc.Width, pDlssResult->desc.Height);
 				hr = TextureCopyRect(*pDlssResult, pRT, rDlss, rect, m_pPS_Simple, nullptr, 0, false);
+			} else {
+				hr = TextureCopyRect(*pInputTexture, pRT, rect, rect, m_pPS_Simple, nullptr, 0, false);
+			}
+		}
+
+		if (bDlssFGHere) {
+			StepSetting();
+			if (SUCCEEDED(DlssFGPass(pInputTexture, rect, passField))) {
+				Tex2D_t* pFGResult = m_bDlssFGFirstFrame ? &m_TexDlssFGIn : &m_TexDlssFGInterp;
+				const CRect rFG(0, 0, pFGResult->desc.Width, pFGResult->desc.Height);
+				hr = TextureCopyRect(*pFGResult, pRT, rFG, rect, m_pPS_Simple, nullptr, 0, false);
 			} else {
 				hr = TextureCopyRect(*pInputTexture, pRT, rect, rect, m_pPS_Simple, nullptr, 0, false);
 			}
@@ -4790,6 +4952,7 @@ HRESULT CDX11VideoProcessor::SetWindowRect(const CRect& windowRect)
 
 	UpdateStatsByWindow();
 
+	UpdateTexures();
 	UpdatePostScaleTexures();
 
 	return hr;
@@ -5176,6 +5339,7 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 	const bool bDlssNRActiveBefore = m_bDlssNRActive;
 	const bool bDlssSRActiveBefore = m_bDlssSRActive;
 	const bool bRenderAheadBefore  = m_bDlssRenderAhead;
+	const int  iDlssNRPassesBefore = m_iDlssNRPasses;
 
 	// settings that do not require preparation
 	m_bShowStats           = config.bShowStats;
@@ -5201,6 +5365,11 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 		m_iDlssNRStabilizer    = config.iDlssNRStabilizer;
 		m_iDlssNRMotion        = config.iDlssNRMotion;
 		m_bDlssNRMotionVectors = config.bDlssNRMotionVectors;
+		if (config.iDlssNRPasses != m_iDlssNRPasses || config.iDlssNRAttenuation != m_iDlssNRAttenuation) {
+			m_iDlssNRPasses      = config.iDlssNRPasses;
+			m_iDlssNRAttenuation = config.iDlssNRAttenuation;
+			UpdateStatsStatic();
+		}
 
 		// Only a different DLL justifies tearing the whole session down.
 		if (m_strDlssNRDllPath != config.szDlssNRDllPath) {
@@ -5298,7 +5467,8 @@ void CDX11VideoProcessor::Configure(const Settings_t& config)
 
 	m_bDlssRenderAhead = config.bDlssRenderAhead;
 	if (m_bDlssRenderAhead != bRenderAheadBefore || m_bDlssNRActive != bDlssNRActiveBefore
-			|| m_bDlssSRActive != bDlssSRActiveBefore || changeDlssFeature) {
+			|| m_bDlssSRActive != bDlssSRActiveBefore || changeDlssFeature
+			|| config.iDlssNRPasses != iDlssNRPassesBefore) {
 		// What render ahead measures has changed: it starts over.
 		m_RenderAhead.Reset();
 		m_DlssNRTimes.Reset();
@@ -5773,6 +5943,9 @@ void CDX11VideoProcessor::UpdateStatsStatic()
 				style, m_DlssParams.iPreset, m_DlssParams.fIntensity, m_DlssParams.fLocalTone,
 				m_DlssParams.fLocalStructure, m_DlssParams.fSkinStructure,
 				m_DlssParams.bUseAutoMask ? L" auto" : L"");
+			if (m_iDlssNRPasses > 1) {
+				m_strStatsVProc += std::format(L" ({} passes, atten {:.2f})", m_iDlssNRPasses, (float)m_iDlssNRAttenuation / 100.0f);
+			}
 			if (m_iDlssNRStabilizer > 0) {
 				m_strStatsVProc += std::format(L"\nStabilizer    : {}, {}{}", m_iDlssNRStabilizer,
 					m_DlssStabilizer.IsCreated() ? m_DlssStabilizer.GetStatusLine() : std::wstring(L"not started"),
