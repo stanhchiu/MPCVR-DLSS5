@@ -205,6 +205,8 @@ public:
 	void GetVideoRect(CRect& videoRect) { videoRect = m_videoRect; }
 	virtual void SetVideoRect(const CRect& videoRect) = 0;
 	virtual HRESULT SetWindowRect(const CRect& windowRect) = 0;
+	virtual void SetInSizeMove(bool set) {};
+	virtual bool IsInSizeMove() const { return false; }
 
 	void GetVideoSize(long& width, long& height);
 	void GetAspectRatio(long& aspectX, long& aspectY);

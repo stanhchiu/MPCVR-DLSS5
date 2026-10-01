@@ -148,7 +148,7 @@ void CVRDlssPPage::EnableControls()
 	for (const int id : { IDC_CHECK20, IDC_STATIC27, IDC_EDIT7, IDC_BUTTON2, IDC_STATIC29, IDC_COMBO13 }) {
 		GetDlgItem(id).EnableWindow(bD3D11);
 	}
-	for (const int id : { IDC_CHECK21, IDC_CHECK22, IDC_CHECK23, IDC_COMBO11, IDC_COMBO12,
+	for (const int id : { IDC_CHECK21, IDC_CHECK23, IDC_COMBO11, IDC_COMBO12,
 			IDC_SLIDER3, IDC_SLIDER4, IDC_SLIDER5, IDC_SLIDER6,
 			IDC_EDIT3, IDC_EDIT4, IDC_EDIT5, IDC_EDIT6,
 			IDC_STATIC21, IDC_STATIC22, IDC_STATIC23, IDC_STATIC24, IDC_STATIC25, IDC_STATIC26,
@@ -159,13 +159,13 @@ void CVRDlssPPage::EnableControls()
 	for (const int id : { IDC_STATIC47, IDC_SLIDER8, IDC_EDIT11 }) {
 		GetDlgItem(id).EnableWindow(bMultiPass);
 	}
-	// The stabilizer works after the network, whatever its own history does.
-	for (const int id : { IDC_STATIC32, IDC_SLIDER7, IDC_EDIT8, IDC_STATIC33, IDC_STATIC34, IDC_COMBO14 }) {
-		GetDlgItem(id).EnableWindow(bOn);
+	// Motion Engine & Stabilization settings are available if D3D11 is used, 
+	// even if NR is off (so they can be configured for SR/FG or pre-configured).
+	for (const int id : { IDC_STATIC34, IDC_COMBO14, IDC_STATIC33, IDC_STATIC32, IDC_SLIDER7, IDC_EDIT8, IDC_CHECK22 }) {
+		GetDlgItem(id).EnableWindow(bD3D11);
 	}
-	// Vectors exist only with Optical Flow, and only while the stabilizer runs.
-	GetDlgItem(IDC_CHECK24).EnableWindow(bOn && m_SetsPP.iDlssNRStabilizer > 0
-		&& m_SetsPP.iDlssNRMotion == DLSSNR_MOTION_OPTICALFLOW);
+	// Vectors exist only with Optical Flow.
+	GetDlgItem(IDC_CHECK24).EnableWindow(bD3D11 && m_SetsPP.iDlssNRMotion == DLSSNR_MOTION_OPTICALFLOW);
 
 	// DLSS Super Resolution does not depend on DLSS 5 NR: another DLL, another session.
 	for (const int id : { IDC_CHECK25, IDC_STATIC37, IDC_EDIT9, IDC_BUTTON4 }) {
@@ -332,10 +332,10 @@ HRESULT CVRDlssPPage::OnActivate()
 		"frame, so the video itself is never delayed. Removes most of the\n"
 		"shimmer DLSS adds. 100 is the measured setting; 0 runs nothing.");
 	AddHint(IDC_COMBO14,
-		L"Where the stabilizer takes motion from.\n"
+		L"Where the Motion Engine derives its flow vectors.\n"
 		"NVIDIA Optical Flow follows the picture, so moving areas are\n"
-		"steadied too. Where it cannot run, the shader detector takes over.\n"
-		"The shader detector only steadies what stands still.\n"
+		"tracked for all DLSS stages. Where it cannot run, the shader detector takes over.\n"
+		"The shader detector is only useful for stabilizing what stands still.\n"
 		"GPU time per picture on an RTX 3050 at 1080p: 2.8 ms with\n"
 		"Optical Flow, 0.8 ms with the shader detector.");
 	AddHint(IDC_CHECK24,

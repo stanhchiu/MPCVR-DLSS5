@@ -1,4 +1,4 @@
-﻿/*
+/*
  * (C) 2018-2026 see Authors.txt
  *
  * This file is part of MPC-BE.
@@ -148,6 +148,9 @@ private:
 	CComPtr<ISubPicQueue>     m_pSubPicQueue;
 
 public:
+	UINT_PTR m_nResizeTimer = 0;
+	CVideoProcessor* GetVideoProcessor() const { return m_VideoProcessor.get(); }
+
 	CMpcVideoRenderer(LPUNKNOWN pUnk, HRESULT* phr);
 	~CMpcVideoRenderer();
 

@@ -194,6 +194,7 @@ private:
 
 	bool m_bExclusiveScreen = false;
 	bool m_bFullScreen = false;
+	bool m_bInSizeMove = false;
 
 	int m_iVPSuperRes = SUPERRES_Disable;
 	bool m_bVPUseSuperRes = false; // but it is not exactly
@@ -434,6 +435,8 @@ public:
 
 	void SetVideoRect(const CRect& videoRect)      override;
 	HRESULT SetWindowRect(const CRect& windowRect) override;
+	void SetInSizeMove(bool set) override;
+	bool IsInSizeMove() const override { return m_bInSizeMove; }
 	HRESULT Reset(bool bDisplayModeChange) override;
 	bool IsInit() const override { return m_bHdrDisplaySwitching; }
 

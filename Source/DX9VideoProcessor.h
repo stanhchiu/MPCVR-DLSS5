@@ -112,6 +112,7 @@ private:
 	CAMEvent m_evThreadFinishJob;
 	HRESULT m_hrThread = E_FAIL;
 	bool m_bChangeDeviceThread = false;
+	bool m_bInSizeMove = false;
 	std::thread m_deviceThread;
 	void DeviceThreadFunc();
 
@@ -163,6 +164,8 @@ public:
 
 	void SetVideoRect(const CRect& videoRect)      override;
 	HRESULT SetWindowRect(const CRect& windowRect) override;
+	void SetInSizeMove(bool set) override;
+	bool IsInSizeMove() const override { return m_bInSizeMove; }
 	HRESULT Reset(bool bDisplayModeChange) override;
 
 	IDirect3DDeviceManager9* GetDeviceManager9() override { return m_pD3DDeviceManager; }

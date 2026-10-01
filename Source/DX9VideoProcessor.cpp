@@ -1697,10 +1697,26 @@ void CDX9VideoProcessor::SetVideoRect(const CRect& videoRect)
 	UpdateTexures();
 }
 
+void CDX9VideoProcessor::SetInSizeMove(bool set)
+{
+	CAutoLock cRendererLock(&m_pFilter->m_RendererLock);
+	if (m_bInSizeMove == set) {
+		return;
+	}
+	m_bInSizeMove = set;
+	if (!m_bInSizeMove) {
+		SetWindowRect(m_windowRect);
+	}
+}
+
 HRESULT CDX9VideoProcessor::SetWindowRect(const CRect& windowRect)
 {
 	m_windowRect = windowRect;
 	UpdateRenderRect();
+
+	if (m_bInSizeMove) {
+		return S_OK;
+	}
 
 	if (m_pD3DDevEx && !m_windowRect.IsRectEmpty()) {
 		if (!m_pFilter->m_bExclusiveScreen) {

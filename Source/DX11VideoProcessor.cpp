@@ -4947,10 +4947,26 @@ void CDX11VideoProcessor::SetVideoRect(const CRect& videoRect)
 	UpdateTexures();
 }
 
+void CDX11VideoProcessor::SetInSizeMove(bool set)
+{
+	CAutoLock cRendererLock(&m_pFilter->m_RendererLock);
+	if (m_bInSizeMove == set) {
+		return;
+	}
+	m_bInSizeMove = set;
+	if (!m_bInSizeMove) {
+		SetWindowRect(m_windowRect);
+	}
+}
+
 HRESULT CDX11VideoProcessor::SetWindowRect(const CRect& windowRect)
 {
 	m_windowRect = windowRect;
 	UpdateRenderRect();
+
+	if (m_bInSizeMove) {
+		return S_OK;
+	}
 
 	HRESULT hr = S_OK;
 	const UINT w = m_windowRect.Width();

@@ -141,6 +141,31 @@ static LRESULT CALLBACK ParentWndProc(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM
 				pThis->OnWindowMove();
 			}
 			break;
+		case WM_ENTERSIZEMOVE:
+			if (pThis->GetVideoProcessor()) {
+				pThis->GetVideoProcessor()->SetInSizeMove(true);
+			}
+			break;
+		case WM_EXITSIZEMOVE:
+			if (pThis->m_nResizeTimer && hWnd) {
+				KillTimer(hWnd, pThis->m_nResizeTimer);
+				pThis->m_nResizeTimer = 0;
+			}
+			if (pThis->GetVideoProcessor()) {
+				pThis->GetVideoProcessor()->SetInSizeMove(false);
+			}
+			break;
+		case WM_TIMER:
+			if (wParam == reinterpret_cast<UINT_PTR>(pThis)) {
+				KillTimer(hWnd, wParam);
+				pThis->m_nResizeTimer = 0;
+				if (pThis->GetVideoProcessor()) {
+					// We only need to set it to false, because we set it to true when starting the timer
+					pThis->GetVideoProcessor()->SetInSizeMove(false);
+				}
+				return 0; // Handled
+			}
+			break;
 		case WM_NCACTIVATE:
 			if (!wParam && pThis->m_bExclusiveScreen && !pThis->m_bIsD3DFullscreen) {
 				return 0;
@@ -1397,7 +1422,21 @@ STDMETHODIMP CMpcVideoRenderer::SetWindowPosition(long Left, long Top, long Widt
 		}
 	}
 
-	m_VideoProcessor->SetWindowRect(m_windowRect);
+	if (m_VideoProcessor) {
+		bool bStartTimer = !m_VideoProcessor->IsInSizeMove() && m_hWndParentMain && (m_filterState == State_Running);
+		if (bStartTimer) {
+			m_VideoProcessor->SetInSizeMove(true);
+		}
+		
+		m_VideoProcessor->SetWindowRect(m_windowRect);
+		
+		if (bStartTimer) {
+			if (m_nResizeTimer) {
+				KillTimer(m_hWndParentMain, m_nResizeTimer);
+			}
+			m_nResizeTimer = SetTimer(m_hWndParentMain, reinterpret_cast<UINT_PTR>(this), 150, nullptr);
+		}
+	}
 
 	m_windowRect = windowRect;
 
