@@ -98,6 +98,7 @@
 #define IDF_PS_11_DLSS_STAB_SNAPMOTION  897
 #define IDF_CS_11_DLSS_GLOBAL_MOTION    898
 #define IDF_PS_11_DLSS_STAB_BLOCKMOTION 899
+#define IDF_PS_11_DLSS_SCALE_MVEC       901
 #define IDF_PS_11_TEST                  900
 #define IDF_VS_11_MPV_HOOK              950
 #define IDF_PS_11_MPV_LUMA              951

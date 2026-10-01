@@ -763,7 +763,7 @@ void CDX11VideoProcessor::ReleaseVP()
 	m_DlssNR.SetGuides(CDlssNR::Guides{}); // before the shared motion vectors go away
 	m_DlssStabilizer.Release();
 	m_DlssSR.ReleaseFeature();
-	m_DlssSRMotion.Release();
+
 	m_DlssFG.ReleaseFeature();
 	m_DlssFG.SetGuides(nullptr, nullptr);
 	m_RenderAhead.Reset();
@@ -3382,11 +3382,10 @@ void CDX11VideoProcessor::UpdateTexures()
 			m_DlssNR.SetGuides(CDlssNR::Guides{}); // before the shared motion vectors go away
 			m_DlssStabilizer.Release();
 		} else {
-			// The stabilizer follows the working size, and motion vectors of another
-			// size must not sit in the parameter block when the feature is created.
+			// The motion vectors of another size must not sit in the parameter block when the feature is created.
 			// DlssNRPass makes a new one.
-			if (m_DlssStabilizer.IsCreated() && !m_DlssStabilizer.Matches(w, h, DlssMotionSource())) {
-				m_DlssNR.SetGuides(CDlssNR::Guides{});
+			m_DlssNR.SetGuides(CDlssNR::Guides{});
+			if (m_DlssStabilizer.IsCreated() && !m_DlssStabilizer.Matches(w, h)) {
 				m_DlssStabilizer.Release();
 			}
 
@@ -4162,8 +4161,8 @@ std::wstring CDX11VideoProcessor::GetDlssStatus()
 	// The page cannot show the statistics, so it says which motion the stabilizer
 	// really uses: Optical Flow may have given way to the detector.
 	std::wstring status = m_DlssNR.GetStatusLine();
-	if (m_iDlssNRStabilizer > 0 && m_DlssStabilizer.IsCreated()) {
-		status += L"; stabilizer: " + m_DlssStabilizer.GetStatusLine();
+	if (m_iDlssNRStabilizer > 0) {
+		status += L"; stabilizer: " + (m_DlssStabilizer.IsCreated() ? (m_MotionEngine.IsCreated() ? m_MotionEngine.GetStatusLine() : std::wstring(L"started")) : std::wstring(L"not started"));
 	}
 	return status;
 }
@@ -4257,15 +4256,13 @@ HRESULT CDX11VideoProcessor::DlssNRPass(Tex2D_t* pInputTexture, const CRect& rSr
 	// strips the effect instead (tools/dlssnr_probe --teffect). Motion is measured
 	// on new pictures only, and a redraw is steadied against the same history again.
 	bool bStabilize = false;
-	const bool bNeedMotionForFG = m_bDlssFGActive && m_iDlssNRMotion == DLSSNR_MOTION_OPTICALFLOW;
-	if (m_iDlssNRStabilizer > 0 || bNeedMotionForFG) {
-		const CDlssStabilizer::Motion motion = DlssMotionSource();
-		if (!m_DlssStabilizer.Matches(w, h, motion)) {
+	if (m_iDlssNRStabilizer > 0) {
+		if (!m_DlssStabilizer.Matches(w, h)) {
 			const bool bWasCreated = m_DlssStabilizer.IsCreated();
 			if (m_DlssNR.HasMotionVectors()) {
 				m_DlssNR.SetGuides(CDlssNR::Guides{}); // before the old vectors go away
 			}
-			const HRESULT hrStab = m_DlssStabilizer.Create(m_pDevice, m_pDeviceContext, w, h, motion,
+			const HRESULT hrStab = m_DlssStabilizer.Create(m_pDevice, w, h,
 				m_pVSimpleInputLayout, m_pVS_Simple, m_pSamplerPoint, m_pSamplerLinear);
 			if (SUCCEEDED(hrStab)) {
 				m_bDlssNewPicture = true; // a new stabilizer has to see this picture
@@ -4284,19 +4281,24 @@ HRESULT CDX11VideoProcessor::DlssNRPass(Tex2D_t* pInputTexture, const CRect& rSr
 	const bool bApplyStabilize = bStabilize && m_iDlssNRStabilizer > 0;
 	const bool bNewPicture = m_bDlssNewPicture;
 	m_bDlssNewPicture = false;
-	if (bStabilize && bNewPicture) {
-		const CDlssStabilizer::Motion active = m_DlssStabilizer.ActiveMotion();
-		m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::NRMotion);
-		m_DlssStabilizer.PrepareMotion(m_pDeviceContext, m_TexDlssIn.pShaderResource);
-		m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::NRMotion);
-		if (m_DlssStabilizer.ActiveMotion() != active) {
-			UpdateStatsStatic(); // Optical Flow gave way to the detector
-		}
+
+	ID3D11Texture2D* pVectors = nullptr;
+	ID3D11ShaderResourceView* pMotionSRV = nullptr;
+	ID3D11ShaderResourceView* pConfidenceSRV = nullptr;
+	bool bIsOpticalFlow = false;
+	if (m_MotionEngine.IsCreated()) {
+		pVectors = m_MotionEngine.GetMotionVectors(m_bDlssNRAfterUpscale);
+		pMotionSRV = pVectors ? m_MotionEngine.GetMotionVectorsSRV(m_bDlssNRAfterUpscale) : m_MotionEngine.GetDetectorAge();
+		pConfidenceSRV = m_MotionEngine.GetConfidence();
+		bIsOpticalFlow = m_MotionEngine.ActiveMotion() == CMotionEngine::Motion::OpticalFlow;
+	}
+
+	if (!m_bDlssNRMotionVectors) {
+		pVectors = nullptr;
 	}
 
 	// The Optical Flow vectors reach the network as well when asked for.
-	ID3D11Texture2D* pVectors = (bStabilize && m_bDlssNRMotionVectors) ? m_DlssStabilizer.GetMotionVectors() : nullptr;
-	if ((pVectors != nullptr) != m_DlssNR.HasMotionVectors()) {
+	if (pVectors != m_DlssNR.GetMotionVectors()) {
 		CDlssNR::Guides guides;
 		guides.pMVec = pVectors;
 		m_DlssNR.SetGuides(guides);
@@ -4354,7 +4356,7 @@ HRESULT CDX11VideoProcessor::DlssNRPass(Tex2D_t* pInputTexture, const CRect& rSr
 			? m_TexDlssOrig.pShaderResource.p
 			: m_TexDlssIn.pShaderResource.p;
 		m_DlssStabilizer.Stabilize(m_pDeviceContext, pOriginalSRV, m_TexDlssOut.pShaderResource,
-			(float)m_iDlssNRStabilizer / DLSSNR_STAB_MAX, bNewPicture);
+			pMotionSRV, pConfidenceSRV, (float)m_iDlssNRStabilizer / DLSSNR_STAB_MAX, bNewPicture, bIsOpticalFlow);
 		m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::NRStabilize);
 		*ppResult = m_DlssStabilizer.GetResult();
 	} else {
@@ -4393,8 +4395,8 @@ void CDX11VideoProcessor::UpdateDlssSR()
 {
 	if (!m_bDlssSR || !DlssSRSupportedHere()) {
 		m_DlssSR.ReleaseFeature();
-		m_DlssSRMotion.Release();
-		m_strDlssSRMotion.clear();
+
+
 		m_bDlssSRActive = false;
 		return;
 	}
@@ -4435,7 +4437,7 @@ HRESULT CDX11VideoProcessor::DlssSRPass(Tex2D_t* pInputTexture, const CRect& rSr
 			return S_FALSE;
 		}
 		m_bDlssSRNewPicture = true;   // a new feature starts its history on this picture
-		m_DlssSRMotion.Reset();
+
 		UpdateScalingStrings();
 		UpdateStatsStatic();
 	}
@@ -4460,21 +4462,8 @@ HRESULT CDX11VideoProcessor::DlssSRPass(Tex2D_t* pInputTexture, const CRect& rSr
 	const bool bNewPicture = m_bDlssSRNewPicture;
 	m_bDlssSRNewPicture = false;
 	if (bNewPicture) {
-		const CDlssStabilizer::FlowSettings flow = CDlssStabilizer::ForDlssSR();
-		if (!m_DlssSRMotion.Matches(inW, inH, CDlssStabilizer::Motion::OpticalFlow, true, flow)) {
-			m_DlssSRMotion.Create(m_pDevice, m_pDeviceContext, inW, inH, CDlssStabilizer::Motion::OpticalFlow,
-				m_pVSimpleInputLayout, m_pVS_Simple, m_pSamplerPoint, m_pSamplerLinear, true, flow);
-		}
-		if (m_DlssSRMotion.IsCreated()) {
-			m_DlssStageTimes.Begin(m_pDeviceContext, CGpuStageTimes::SRMotion);
-			m_DlssSRMotion.PrepareMotion(m_pDeviceContext, pInput->pShaderResource);
-			m_DlssStageTimes.End(m_pDeviceContext, CGpuStageTimes::SRMotion);
-			pMotion = m_DlssSRMotion.GetMotionVectors();
-			motion = pMotion ? std::wstring(L"OF, global motion") : m_DlssSRMotion.GetStatusLine();
-		}
-		if (motion != m_strDlssSRMotion) {
-			m_strDlssSRMotion = motion;
-			UpdateStatsStatic();
+		if (m_MotionEngine.IsCreated()) {
+			pMotion = m_MotionEngine.GetMotionVectors();
 		}
 	}
 
@@ -4574,10 +4563,9 @@ HRESULT CDX11VideoProcessor::DlssFGPass(Tex2D_t* pInputTexture, const CRect& rSr
 		}
 
 		ID3D11Texture2D* pVectors = nullptr;
-		if (m_DlssStabilizer.IsCreated()) {
-			pVectors = m_DlssStabilizer.GetMotionVectors();
-		} else if (m_DlssSRMotion.IsCreated()) {
-			pVectors = m_DlssSRMotion.GetMotionVectors();
+		if (m_MotionEngine.IsCreated()) {
+			pVectors = m_MotionEngine.GetMotionVectors(true);
+			if (!pVectors) pVectors = m_MotionEngine.GetMotionVectors(false);
 		}
 		if (pVectors) {
 			D3D11_TEXTURE2D_DESC descV = {};
@@ -4771,6 +4759,20 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 		pInputTexture = &m_TexSrcVideo;
 	}
 
+	if ((m_bDlssNRActive || m_bDlssSRActive || m_bDlssFGActive) && bAllowDlss && pInputTexture && passField == 1) {
+		const UINT inW = rSrc.Width();
+		const UINT inH = rSrc.Height();
+		CMotionEngine::Motion motionType = (m_iDlssNRMotion == DLSSNR_MOTION_OPTICALFLOW) ? CMotionEngine::Motion::OpticalFlow : CMotionEngine::Motion::Detector;
+		CMotionEngine::FlowSettings flowSettings = m_bDlssSRActive ? CMotionEngine::ForDlssSR() : CMotionEngine::FlowSettings{};
+		if (!m_MotionEngine.Matches(inW, inH, motionType, flowSettings)) {
+			m_MotionEngine.Create(m_pDevice, m_pDeviceContext, inW, inH, motionType,
+				m_pVSimpleInputLayout, m_pVS_Simple, m_pSamplerPoint, m_pSamplerLinear, flowSettings);
+		}
+		if (m_MotionEngine.IsCreated()) {
+			m_MotionEngine.PrepareMotion(m_pDeviceContext, pInputTexture->pShaderResource);
+		}
+	}
+
 	const bool bDlssHere = m_bDlssNRActive && bAllowDlss && !m_bDlssNRAfterUpscale;
 	if (bDlssHere && pInputTexture && passField == 1) {
 		Tex2D_t* pDlssResult = nullptr;
@@ -4830,6 +4832,10 @@ HRESULT CDX11VideoProcessor::Process(ID3D11Texture2D* pRenderTarget, const CRect
 			hr = ResizeShaderPass(*pInputTexture, pRT, rSrc, dstRect, rotation);
 		} else {
 			pTex = pInputTexture; // Hmm
+		}
+
+		if ((m_bDlssNRActive || m_bDlssFGActive) && bAllowDlss && m_MotionEngine.IsCreated()) {
+			m_MotionEngine.ScaleMotionVectors(m_pDeviceContext, pTex->pShaderResource, dstRect.Width(), dstRect.Height());
 		}
 
 		if (m_bDlssNRActive && bAllowDlss && m_bDlssNRAfterUpscale) {
@@ -5754,7 +5760,7 @@ void CDX11VideoProcessor::Flush()
 	m_DlssNR.RequestReset();
 	m_DlssStabilizer.Reset();
 	m_DlssSR.RequestReset();
-	m_DlssSRMotion.Reset();
+
 	m_DlssFG.RequestReset();
 	m_bDlssFGFirstFrame = true;
 
@@ -5954,8 +5960,8 @@ void CDX11VideoProcessor::UpdateStatsStatic()
 			}
 			if (m_iDlssNRStabilizer > 0) {
 				m_strStatsVProc += std::format(L"\nStabilizer    : {}, {}{}", m_iDlssNRStabilizer,
-					m_DlssStabilizer.IsCreated() ? m_DlssStabilizer.GetStatusLine() : std::wstring(L"not started"),
-					(m_bDlssNRMotionVectors && m_DlssStabilizer.GetMotionVectors()) ? L", vectors to DLSS" : L"");
+					m_DlssStabilizer.IsCreated() ? (m_MotionEngine.IsCreated() ? m_MotionEngine.GetStatusLine() : std::wstring(L"started")) : std::wstring(L"not started"),
+					(m_bDlssNRMotionVectors && m_MotionEngine.GetMotionVectors()) ? L", vectors to DLSS" : L"");
 			}
 		} else {
 			m_strStatsVProc += std::format(L"\nDLSS 5 NR     : {}", m_DlssNR.GetStatusLine());
@@ -5963,8 +5969,8 @@ void CDX11VideoProcessor::UpdateStatsStatic()
 	}
 	if (m_bDlssSR) {
 		m_strStatsVProc += L"\nDLSS SR       : " + m_DlssSR.GetStatsLine();
-		if (m_bDlssSRActive && m_DlssSR.IsFeatureReady() && !m_strDlssSRMotion.empty()) {
-			m_strStatsVProc += L", " + m_strDlssSRMotion;
+		if (m_bDlssSRActive && m_DlssSR.IsFeatureReady() && m_MotionEngine.IsCreated()) {
+			m_strStatsVProc += L", " + (m_MotionEngine.GetMotionVectors() ? std::wstring(L"OF, global motion") : m_MotionEngine.GetStatusLine());
 		}
 	}
 	if (m_bDlssFG) {

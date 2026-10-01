@@ -125,6 +125,7 @@ public:
 	};
 	bool SetGuides(const Guides& g);   // false if a texture could not be shared
 	bool HasMotionVectors() const { return m_GuideMVec.p12 != nullptr; }
+	ID3D11Texture2D* GetMotionVectors() const { return m_GuideMVec.p11; }
 	bool HasControlMask() const { return m_GuideMask.p12 != nullptr; }
 
 	bool IsInitialised() const { return m_bInitialised; }

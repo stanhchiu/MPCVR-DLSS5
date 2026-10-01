@@ -36,6 +36,7 @@ fxc /nologo /O2 /T ps_4_0 /Fo ps_dlss_stab_flowmotion.cso "%SH%\ps_dlss_stabiliz
 fxc /nologo /O2 /T ps_4_0 /Fo ps_dlss_stab_stabilize.cso "%SH%\ps_dlss_stabilize.hlsl" /DPASS=2 >NUL || EXIT /B 1
 fxc /nologo /O2 /T ps_4_0 /Fo ps_dlss_stab_snapmotion.cso "%SH%\ps_dlss_stabilize.hlsl" /DPASS=3 >NUL || EXIT /B 1
 fxc /nologo /O2 /T ps_4_0 /Fo ps_dlss_stab_blockmotion.cso "%SH%\ps_dlss_stabilize.hlsl" /DPASS=4 >NUL || EXIT /B 1
+fxc /nologo /O2 /T ps_4_0 /Fo ps_dlss_scale_mvec.cso "%SH%\ps_dlss_scale_mvec.hlsl" >NUL || EXIT /B 1
 fxc /nologo /O2 /T cs_5_0 /Fo cs_dlss_global_motion.cso "%SH%\cs_dlss_global_motion.hlsl" >NUL || EXIT /B 1
 rc /nologo /fo detector_shaders.res detector_shaders.rc || EXIT /B 1
 

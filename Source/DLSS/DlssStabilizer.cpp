@@ -43,37 +43,8 @@ struct QuadVertex {
 };
 
 // About 540 lines of flow whatever the video: 1.6 ms on an RTX 3050 (--tflow).
-UINT FlowFactor(UINT height)
-{
-	return height >= 1440 ? 4 : (height >= 720 ? 2 : 1);
-}
 
 } // namespace
-
-CDlssStabilizer::FlowSettings CDlssStabilizer::ForDlssSR()
-{
-	FlowSettings flow;
-	flow.bidirectional     = true;
-	flow.cost              = true;
-	flow.flowBlur          = 1;
-	flow.snap              = true;
-	flow.snapLow           = 0.75f;
-	flow.snapHigh          = 1.5f;
-	flow.snapGate          = 2;
-	flow.snapDeadZone      = 0.4f;
-	flow.vectorRadius      = 3;
-	flow.vectorSigma       = 1.0f;
-	flow.vectorShift       = 3;
-	flow.vectorSupportLow  = 0.1f;
-	flow.vectorSupportHigh = 0.3f;
-	flow.vectorEvidence    = 4.0f;
-	flow.vectorTemporal    = 0.3f;
-	flow.vectorRefine      = 3;
-	flow.vectorReach       = 4.0f;
-	flow.vectorTexture     = 0.02f;
-	return flow;
-}
-
 HRESULT CDlssStabilizer::CreateTarget(ID3D11Device* pDevice, UINT width, UINT height, DXGI_FORMAT format, Target& target)
 {
 	D3D11_TEXTURE2D_DESC desc = {};
@@ -97,18 +68,15 @@ HRESULT CDlssStabilizer::CreateTarget(ID3D11Device* pDevice, UINT width, UINT he
 	return hr;
 }
 
-bool CDlssStabilizer::Matches(UINT width, UINT height, Motion motion, bool bMotionOnly, const FlowSettings& flow) const
+bool CDlssStabilizer::Matches(UINT width, UINT height) const
 {
-	return m_width == width && m_height == height && m_Requested == motion && m_bMotionOnly == bMotionOnly
-		&& m_FlowSettings == flow && m_pPSStabilize;
+	return m_width == width && m_height == height && m_pPSStabilize;
 }
 
-HRESULT CDlssStabilizer::CreateResources(ID3D11Device* pDevice, UINT width, UINT height, bool bMotionOnly, const FlowSettings& flow)
+HRESULT CDlssStabilizer::CreateResources(ID3D11Device* pDevice, UINT width, UINT height)
 {
 	HRESULT hr = S_OK;
 	const struct { UINT resid; ID3D11PixelShader** ppShader; } shaders[] = {
-		{ IDF_PS_11_DLSS_STAB_FLOWFRAME,  &m_pPSFlowFrame  },
-		{ IDF_PS_11_DLSS_STAB_FLOWMOTION, &m_pPSFlowMotion },
 		{ IDF_PS_11_DLSS_STAB_STABILIZE,  &m_pPSStabilize  },
 	};
 	for (const auto& s : shaders) {
@@ -127,8 +95,6 @@ HRESULT CDlssStabilizer::CreateResources(ID3D11Device* pDevice, UINT width, UINT
 	D3D11_BUFFER_DESC bufferDesc = { 32 * sizeof(float), D3D11_USAGE_DYNAMIC, D3D11_BIND_CONSTANT_BUFFER, D3D11_CPU_ACCESS_WRITE, 0, 0 };
 	hr = pDevice->CreateBuffer(&bufferDesc, nullptr, &m_pConstants);
 	if (SUCCEEDED(hr)) {
-		// FillVertices for an unrotated, unflipped blit of a whole texture: the
-		// winding the renderer draws with, which survives back-face culling.
 		static const QuadVertex quad[4] = {
 			{ -1, -1, 0,  0, 1 },
 			{ -1, +1, 0,  0, 0 },
@@ -138,59 +104,6 @@ HRESULT CDlssStabilizer::CreateResources(ID3D11Device* pDevice, UINT width, UINT
 		bufferDesc = { sizeof(quad), D3D11_USAGE_IMMUTABLE, D3D11_BIND_VERTEX_BUFFER, 0, 0, 0 };
 		const D3D11_SUBRESOURCE_DATA init = { quad, 0, 0 };
 		hr = pDevice->CreateBuffer(&bufferDesc, &init, &m_pQuad);
-	}
-
-	if (SUCCEEDED(hr)) {
-		hr = m_TexMotion.CheckCreate(pDevice, DXGI_FORMAT_R16G16_FLOAT, width, height, Tex2D_DefaultShaderRTargetUAVShared);
-	}
-	if (SUCCEEDED(hr)) {
-		hr = pDevice->CreateRenderTargetView(m_TexMotion.pTexture, nullptr, &m_pMotionTarget);
-	}
-	if (SUCCEEDED(hr)) {
-		hr = CreateTarget(pDevice, width, height, DXGI_FORMAT_R8_UNORM, m_Confidence);
-	}
-	if (bMotionOnly) {
-		if (SUCCEEDED(hr) && flow.snap) {
-			// The global motion, measured on the GPU and read there: nothing waits for it.
-			LPVOID data = nullptr;
-			DWORD size = 0;
-			hr = GetDataFromResource(data, size, IDF_CS_11_DLSS_GLOBAL_MOTION);
-			if (SUCCEEDED(hr)) {
-				hr = pDevice->CreateComputeShader(data, size, nullptr, &m_pCSGlobalMotion);
-			}
-			if (SUCCEEDED(hr)) {
-				hr = GetDataFromResource(data, size, IDF_PS_11_DLSS_STAB_SNAPMOTION);
-			}
-			if (SUCCEEDED(hr)) {
-				hr = pDevice->CreatePixelShader(data, size, nullptr, &m_pPSSnapMotion);
-			}
-			if (SUCCEEDED(hr)) {
-				hr = GetDataFromResource(data, size, IDF_PS_11_DLSS_STAB_BLOCKMOTION);
-			}
-			if (SUCCEEDED(hr)) {
-				hr = pDevice->CreatePixelShader(data, size, nullptr, &m_pPSBlockMotion);
-			}
-			if (SUCCEEDED(hr)) {
-				D3D11_TEXTURE2D_DESC desc = {};
-				desc.Width            = 1;
-				desc.Height           = 1;
-				desc.MipLevels        = 1;
-				desc.ArraySize        = 1;
-				desc.Format           = DXGI_FORMAT_R32G32B32A32_FLOAT;
-				desc.SampleDesc.Count = 1;
-				desc.Usage            = D3D11_USAGE_DEFAULT;
-				desc.BindFlags        = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_UNORDERED_ACCESS;
-				hr = pDevice->CreateTexture2D(&desc, nullptr, &m_pGlobalMotion);
-			}
-			if (SUCCEEDED(hr)) {
-				hr = pDevice->CreateShaderResourceView(m_pGlobalMotion, nullptr, &m_pGlobalMotionView);
-			}
-			if (SUCCEEDED(hr)) {
-				hr = pDevice->CreateUnorderedAccessView(m_pGlobalMotion, nullptr, &m_pGlobalMotionTarget);
-			}
-			DLogIf(FAILED(hr), L"CDlssStabilizer::Create() : the global motion failed with error {}", HR2Str(hr));
-		}
-		return hr;
 	}
 	for (int i = 0; i < 2 && SUCCEEDED(hr); i++) {
 		hr = CreateTarget(pDevice, width, height, DXGI_FORMAT_R16G16B16A16_FLOAT, m_History[i]);
@@ -207,25 +120,19 @@ HRESULT CDlssStabilizer::CreateResources(ID3D11Device* pDevice, UINT width, UINT
 	return hr;
 }
 
-HRESULT CDlssStabilizer::StartDetector()
-{
-	m_Flow.Release();
-	m_ActiveMotion = Motion::Detector;
-	return m_Detector.Create(m_pDevice, m_width, m_height);
-}
 
-HRESULT CDlssStabilizer::Create(ID3D11Device* pDevice, ID3D11DeviceContext* pContext, UINT width, UINT height, Motion motion,
+
+HRESULT CDlssStabilizer::Create(ID3D11Device* pDevice, UINT width, UINT height,
 	ID3D11InputLayout* pInputLayout, ID3D11VertexShader* pVertexShader,
-	ID3D11SamplerState* pSamplerPoint, ID3D11SamplerState* pSamplerLinear, bool bMotionOnly, const FlowSettings& flow)
+	ID3D11SamplerState* pSamplerPoint, ID3D11SamplerState* pSamplerLinear)
 {
 	CheckPointer(pDevice, E_POINTER);
-	CheckPointer(pContext, E_POINTER);
-	if (Matches(width, height, motion, bMotionOnly, flow)) {
+	if (Matches(width, height)) {
 		return S_OK;
 	}
 	// What failed once fails again: no new attempt on every picture until the size
 	// or the source changes, or the owner calls Release.
-	if (width == m_failedWidth && height == m_failedHeight && motion == m_failedMotion) {
+	if (width == m_failedWidth && height == m_failedHeight) {
 		return E_FAIL;
 	}
 	Release();
@@ -233,13 +140,12 @@ HRESULT CDlssStabilizer::Create(ID3D11Device* pDevice, ID3D11DeviceContext* pCon
 		return E_INVALIDARG;
 	}
 
-	HRESULT hr = CreateResources(pDevice, width, height, bMotionOnly, flow);
+	HRESULT hr = CreateResources(pDevice, width, height);
 	if (FAILED(hr)) {
 		DLog(L"CDlssStabilizer::Create() : {}x{} failed with error {}", width, height, HR2Str(hr));
 		Release();
 		m_failedWidth  = width;
 		m_failedHeight = height;
-		m_failedMotion = motion;
 		return hr;
 	}
 
@@ -250,89 +156,15 @@ HRESULT CDlssStabilizer::Create(ID3D11Device* pDevice, ID3D11DeviceContext* pCon
 	m_pSamplerLinear = pSamplerLinear;
 	m_width          = width;
 	m_height         = height;
-	m_Requested      = motion;
-	m_ActiveMotion   = motion;
-	m_bMotionOnly    = bMotionOnly;
-	m_FlowSettings   = flow;
-
-	std::wstring fallback;
-	if (motion == Motion::OpticalFlow) {
-		m_flowFactor = flow.flowFactor ? flow.flowFactor : FlowFactor(height);
-		CDlssOpticalFlow::Options options;
-		options.gridSize      = flow.gridSize;
-		options.perfLevel     = flow.perfLevel;
-		options.bidirectional = flow.bidirectional;
-		options.cost          = flow.cost;
-		options.temporalHints = flow.temporalHints;
-		if (!m_Flow.Init(pDevice, pContext, width / m_flowFactor, height / m_flowFactor, options)) {
-			fallback = m_Flow.GetStatusLine();
-			m_ActiveMotion = Motion::Detector;
-		} else if (m_pPSBlockMotion) {
-			// PASS 4's blocks, one pixel per vector, known once the engine has its grid.
-			for (int i = 0; i < 2 && SUCCEEDED(hr); i++) {
-				hr = CreateTarget(pDevice, m_Flow.OutputWidth(), m_Flow.OutputHeight(), DXGI_FORMAT_R32G32B32A32_FLOAT, m_BlockField[i]);
-			}
-			if (FAILED(hr)) {
-				Release();
-				m_failedWidth  = width;
-				m_failedHeight = height;
-				m_failedMotion = motion;
-				return hr;
-			}
-		}
-	}
-	if (m_ActiveMotion == Motion::Detector && !bMotionOnly) {
-		hr = StartDetector();
-		if (FAILED(hr)) {
-			Release();
-			m_failedWidth  = width;
-			m_failedHeight = height;
-			m_failedMotion = motion;
-			return hr;
-		}
-	}
-
-	if (m_ActiveMotion == Motion::OpticalFlow) {
-		m_status = std::format(L"Optical Flow {}x{}", m_Flow.Width(), m_Flow.Height());
-	} else if (bMotionOnly) {
-		// Nothing to fall back on: the detector says what stands still, not where
-		// anything went.
-		m_status = fallback.empty() ? L"no motion vectors" : L"no motion vectors (Optical Flow: " + fallback + L")";
-	} else if (!fallback.empty()) {
-		m_status = L"shader detector (Optical Flow: " + fallback + L")";
-	} else {
-		m_status = L"shader detector";
-	}
-
-	const FLOAT zero[4] = { 0, 0, 0, 0 };
-	pContext->ClearRenderTargetView(m_pMotionTarget, zero);
-	pContext->ClearRenderTargetView(m_Confidence.pRenderTarget, zero);
 	Reset();
 	return S_OK;
 }
 
 void CDlssStabilizer::Release()
 {
-	m_Flow.Release();
-	m_Detector.Release();
-	m_pPSFlowFrame.Release();
-	m_pPSFlowMotion.Release();
 	m_pPSStabilize.Release();
-	m_pPSSnapMotion.Release();
-	m_pPSBlockMotion.Release();
-	m_BlockField[0] = Target{};
-	m_BlockField[1] = Target{};
-	m_iBlockField = 0;
-	m_bBlockHistory = false;
-	m_pCSGlobalMotion.Release();
-	m_pGlobalMotionTarget.Release();
-	m_pGlobalMotionView.Release();
-	m_pGlobalMotion.Release();
 	m_pConstants.Release();
 	m_pQuad.Release();
-	m_pMotionTarget.Release();
-	m_TexMotion.Release();
-	m_Confidence = Target{};
 	m_History[0] = Target{};
 	m_History[1] = Target{};
 	m_Input[0] = Target{};
@@ -346,34 +178,22 @@ void CDlssStabilizer::Release()
 	m_pSamplerLinear = nullptr;
 	m_width  = 0;
 	m_height = 0;
-	m_bMotionOnly   = false;
-	m_FlowSettings  = FlowSettings();
 	m_iHistory      = 0;
 	m_iInput        = 0;
-	m_iFlowFailures = 0;
 	m_bHistoryValid = false;
-	m_bHaveMotion   = false;
 	m_bHaveResult   = false;
 	m_bLastReset    = true;
 	m_failedWidth   = 0;
 	m_failedHeight  = 0;
-	m_status.clear();
 }
+
+
 
 void CDlssStabilizer::Reset()
 {
-	m_Flow.Reset();
-	m_Detector.Reset();
-	m_iFlowFailures = 0;
-	m_bBlockHistory = false;
 	m_bHistoryValid = false;
-	m_bHaveMotion   = false;
 	m_bHaveResult   = false;
-}
-
-ID3D11Texture2D* CDlssStabilizer::GetMotionVectors() const
-{
-	return (m_width && m_ActiveMotion == Motion::OpticalFlow) ? m_TexMotion.pTexture.p : nullptr;
+	m_bLastReset    = true;
 }
 
 void CDlssStabilizer::Draw(ID3D11DeviceContext* pContext, ID3D11PixelShader* pShader,
@@ -421,115 +241,12 @@ void CDlssStabilizer::Draw(ID3D11DeviceContext* pContext, ID3D11PixelShader* pSh
 	pContext->OMSetRenderTargets((UINT)std::size(noTargets), noTargets, nullptr);
 }
 
-void CDlssStabilizer::MeasureGlobalMotion(ID3D11DeviceContext* pContext)
-{
-	// Only the blocks PASS 1 would trust count, by the same measures.
-	D3D11_MAPPED_SUBRESOURCE mr = {};
-	if (SUCCEEDED(pContext->Map(m_pConstants, 0, D3D11_MAP_WRITE_DISCARD, 0, &mr))) {
-		const float constants[32] = {
-			(float)m_Flow.GridSize(), kConsistency, kCostLow, kCostHigh,
-			(float)m_Flow.Width(), (float)m_Flow.Height(), m_Flow.Bidirectional() ? 1.0f : 0.0f, m_Flow.HasCost() ? 1.0f : 0.0f,
-			kTrustedShare
-		};
-		memcpy(mr.pData, constants, sizeof(constants));
-		pContext->Unmap(m_pConstants, 0);
-	}
-	ID3D11ShaderResourceView* views[3] = { m_Flow.ForwardFlow(), m_Flow.BackwardFlow(), m_Flow.ForwardCost() };
-	ID3D11UnorderedAccessView* pTarget = m_pGlobalMotionTarget;
-	ID3D11Buffer* pConstants = m_pConstants;
-	pContext->CSSetShader(m_pCSGlobalMotion, nullptr, 0);
-	pContext->CSSetShaderResources(0, (UINT)std::size(views), views);
-	pContext->CSSetConstantBuffers(0, 1, &pConstants);
-	pContext->CSSetUnorderedAccessViews(0, 1, &pTarget, nullptr);
-	pContext->Dispatch(1, 1, 1);
-
-	// Unbound, so the next pass can read what this one wrote.
-	ID3D11ShaderResourceView* noViews[3] = {};
-	ID3D11UnorderedAccessView* noTarget = nullptr;
-	ID3D11Buffer* noConstants = nullptr;
-	pContext->CSSetShaderResources(0, (UINT)std::size(noViews), noViews);
-	pContext->CSSetUnorderedAccessViews(0, 1, &noTarget, nullptr);
-	pContext->CSSetConstantBuffers(0, 1, &noConstants);
-	pContext->CSSetShader(nullptr, nullptr, 0);
-}
-
-void CDlssStabilizer::PrepareMotion(ID3D11DeviceContext* pContext, ID3D11ShaderResourceView* pInput)
-{
-	if (!m_width || !pContext || !pInput) {
-		return;
-	}
-
-	if (m_ActiveMotion == Motion::OpticalFlow) {
-		const float frameConstants[4] = { (float)m_flowFactor, (float)m_FlowSettings.flowBlur, 0, 0 };
-		Draw(pContext, m_pPSFlowFrame, { m_Flow.FrameTarget() }, m_Flow.Width(), m_Flow.Height(),
-			{ pInput }, frameConstants, std::size(frameConstants));
-
-		m_bHaveMotion = m_Flow.Execute();
-		if (m_bHaveMotion && m_bMotionOnly && m_pPSSnapMotion && m_BlockField[0].pTexture) {
-			// DLSS Super Resolution: the global motion, the blocks drawn to it and
-			// steadied (PASS 4), then blended into the working size (PASS 3).
-			m_iFlowFailures = 0;
-			MeasureGlobalMotion(pContext);
-			const float scaleX = (float)m_width / m_Flow.Width(), scaleY = (float)m_height / m_Flow.Height();
-			const int write = 1 - m_iBlockField;
-			const float blockConstants[28] = {
-				scaleX, scaleY, (float)m_Flow.GridSize(), kConsistency,
-				(float)m_Flow.Width(), (float)m_Flow.Height(), kCostLow, kCostHigh,
-				m_Flow.Bidirectional() ? 1.0f : 0.0f, m_Flow.HasCost() ? 1.0f : 0.0f, m_FlowSettings.snapLow, m_FlowSettings.snapHigh,
-				(float)m_FlowSettings.snapGate, m_FlowSettings.snapDeadZone, (float)m_FlowSettings.vectorRadius, m_FlowSettings.vectorSigma,
-				m_FlowSettings.vectorTemporal, m_bBlockHistory ? 1.0f : 0.0f, (float)m_FlowSettings.vectorShift, m_FlowSettings.vectorSupportLow,
-				m_FlowSettings.vectorSupportHigh, (float)m_FlowSettings.vectorRefine, m_FlowSettings.vectorReach, m_FlowSettings.vectorTexture,
-				m_FlowSettings.vectorEvidence, 0, 0, 0
-			};
-			Draw(pContext, m_pPSBlockMotion, { m_BlockField[write].pRenderTarget }, m_Flow.OutputWidth(), m_Flow.OutputHeight(),
-				{ m_Flow.ForwardFlow(), m_Flow.BackwardFlow(), m_Flow.ForwardCost(), m_pGlobalMotionView, m_BlockField[m_iBlockField].pShaderResource,
-				  m_Flow.CurrentFrame(), m_Flow.PreviousFrame() },
-				blockConstants, std::size(blockConstants));
-			const float snapConstants[4] = { scaleX, scaleY, (float)m_Flow.GridSize(), m_FlowSettings.snapDeadZone };
-			Draw(pContext, m_pPSSnapMotion, { m_pMotionTarget }, m_width, m_height,
-				{ m_BlockField[write].pShaderResource, m_pGlobalMotionView }, snapConstants, std::size(snapConstants));
-			m_iBlockField = write;
-			m_bBlockHistory = true;
-			return;
-		}
-		if (m_bHaveMotion) {
-			m_iFlowFailures = 0;
-			const float motionConstants[12] = {
-				(float)m_width / m_Flow.Width(), (float)m_height / m_Flow.Height(), (float)m_Flow.GridSize(), kConsistency,
-				(float)m_Flow.Width(), (float)m_Flow.Height(), kCostLow, kCostHigh,
-				m_Flow.Bidirectional() ? 1.0f : 0.0f, m_Flow.HasCost() ? 1.0f : 0.0f, 0, 0
-			};
-			Draw(pContext, m_pPSFlowMotion, { m_pMotionTarget, m_Confidence.pRenderTarget }, m_width, m_height,
-				{ m_Flow.ForwardFlow(), m_Flow.BackwardFlow(), m_Flow.ForwardCost() }, motionConstants, std::size(motionConstants));
-			return;
-		}
-
-		// No flow for this picture: no motion for the network, no trust in the history.
-		m_bBlockHistory = false;
-		const FLOAT zero[4] = { 0, 0, 0, 0 };
-		pContext->ClearRenderTargetView(m_pMotionTarget, zero);
-		pContext->ClearRenderTargetView(m_Confidence.pRenderTarget, zero);
-		if (!m_bMotionOnly && m_Flow.LastExecuteFailed() && ++m_iFlowFailures >= kFlowFailuresBeforeFallback) {
-			const std::wstring why = m_Flow.GetStatusLine();
-			if (SUCCEEDED(StartDetector())) {
-				m_status = L"shader detector (Optical Flow: " + why + L")";
-				m_bHistoryValid = false;
-			}
-		}
-		return;
-	}
-
-	if (m_bMotionOnly) {
-		return;   // no Optical Flow, no vectors
-	}
-	m_Detector.Process(pContext, pInput, 1.0f, m_pInputLayout, m_pVertexShader, m_pSamplerPoint, m_pSamplerLinear, false);
-	m_bHaveMotion = true;
-}
-
 void CDlssStabilizer::Stabilize(ID3D11DeviceContext* pContext, ID3D11ShaderResourceView* pInput,
-	ID3D11ShaderResourceView* pNetwork, float strength, bool bNewPicture)
+	ID3D11ShaderResourceView* pNetwork, ID3D11ShaderResourceView* pMotionVectors,
+	ID3D11ShaderResourceView* pConfidence,
+	float strength, bool bNewPicture, bool bIsOpticalFlow)
 {
-	if (!m_width || !pContext || !pInput || !pNetwork || m_bMotionOnly) {
+	if (!m_width || !pContext || !pInput || !pNetwork) {
 		return;
 	}
 
@@ -538,26 +255,24 @@ void CDlssStabilizer::Stabilize(ID3D11DeviceContext* pContext, ID3D11ShaderResou
 	// both move on with the pictures only.
 	const bool bAdvance = bNewPicture || !m_bHaveResult;
 	if (bAdvance) {
-		m_bLastReset = !m_bHistoryValid || !m_bHaveMotion;
+		m_bLastReset = !m_bHistoryValid || !pMotionVectors;
 	}
 	const int iRead     = bAdvance ? m_iHistory : 1 - m_iHistory;
 	const int iPrevious = bAdvance ? m_iInput : 1 - m_iInput;
 
-	const bool bFlow = (m_ActiveMotion == Motion::OpticalFlow);
 	const float constants[8] = {
 		1.0f - 0.75f * std::clamp(strength, 0.0f, 1.0f),     // weight of the current frame where trusted
 		kTolerance,
-		bFlow ? 1.0f : 0.0f,
-		bFlow ? kReprojection : 0.0f,
+		bIsOpticalFlow ? 1.0f : 0.0f,
+		bIsOpticalFlow ? kReprojection : 0.0f,
 		m_bLastReset ? 1.0f : 0.0f,                           // no history for this picture
 		0.0f,                                                 // EFFECT: only out - in is steadied
 		0.25f,                                                // detector age map: a quarter of the size
 		0.0f
 	};
 
-	ID3D11ShaderResourceView* pMotion = bFlow ? m_TexMotion.pShaderResource.p : m_Detector.GetAge();
 	Draw(pContext, m_pPSStabilize, { m_History[1 - iRead].pRenderTarget, m_pResultTarget }, m_width, m_height,
-		{ pInput, pNetwork, m_History[iRead].pShaderResource, pMotion, m_Input[iPrevious].pShaderResource, m_Confidence.pShaderResource },
+		{ pInput, pNetwork, m_History[iRead].pShaderResource, pMotionVectors, m_Input[iPrevious].pShaderResource, pConfidence },
 		constants, std::size(constants));
 
 	// This input is the previous one for the next picture's reprojection check.

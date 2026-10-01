@@ -30,6 +30,7 @@
 #include "D3D11VP.h"
 #include "D3DUtil/D3D11Font.h"
 #include "D3DUtil/D3D11Geometry.h"
+#include "DLSS/DlssMotionEngine.h"
 #include "DLSS/DlssStabilizer.h"
 #include "DLSS/DlssNR.h"
 #include "DLSS/DlssSR.h"
@@ -226,9 +227,9 @@ private:
 	bool m_bDlssSR = false;             // user setting
 	bool m_bDlssSRActive = false;       // setting AND the NGX session is up
 	int  m_iDlssSRPreset = DLSSSR_PRESET_DEF;
-	CDlssStabilizer m_DlssSRMotion;     // Optical Flow vectors for DLSS SR, drawn to the global motion
+	CMotionEngine m_MotionEngine;
 	bool m_bDlssSRNewPicture = false;   // the next pass sees a new picture, not a redraw
-	std::wstring m_strDlssSRMotion;     // where the vectors came from, for the statistics
+
 
 	// Render ahead while a DLSS pass runs: samples are processed early by what the
 	// passes take, and each finished picture waits for its time (CRenderAhead).
@@ -294,11 +295,7 @@ private:
 	void MarkPictureSubmitted();
 	void HoldUntilPresentTime(const REFERENCE_TIME frameStartTime, const bool bMeasure);
 
-	CDlssStabilizer::Motion DlssMotionSource() const
-	{
-		return (m_iDlssNRMotion == DLSSNR_MOTION_DETECTOR)
-			? CDlssStabilizer::Motion::Detector : CDlssStabilizer::Motion::OpticalFlow;
-	}
+
 	D3D_FEATURE_LEVEL m_FeatureLevel = D3D_FEATURE_LEVEL_10_0;
 
 	bool m_bHdrPassthroughSupport             = false;
