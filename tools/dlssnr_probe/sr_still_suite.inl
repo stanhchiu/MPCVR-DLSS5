@@ -32,7 +32,7 @@ namespace {
 struct StillRow {
 	const char* name;
 	int motion = 0;                        // 0 exact, 1 Optical Flow, 2 none
-	CDlssStabilizer::FlowSettings flow;    // Optical Flow rows
+	CMotionEngine::FlowSettings flow;    // Optical Flow rows
 	int pad = 0;                           // guard band: source pixels mirrored on each side
 	// Exact rows: vectors made worse on purpose, to see what accuracy DLSS needs.
 	float noise = 0;                       // per 8 x 8 block, as Optical Flow's, source pixels (sigma)
@@ -42,10 +42,10 @@ struct StillRow {
 
 // Optical Flow as DlssSRPass runs it -- about 540 lines, grid 4, forward only --
 // with or without the snapping to the global motion.
-CDlssStabilizer::FlowSettings StillFlow(bool snap = false, float low = 0.5f, float high = 1.0f, int gate = 0,
+CMotionEngine::FlowSettings StillFlow(bool snap = false, float low = 0.5f, float high = 1.0f, int gate = 0,
 	bool confidence = false, bool hints = true, UINT blur = 0, float deadZone = 0.0f)
 {
-	CDlssStabilizer::FlowSettings flow;
+	CMotionEngine::FlowSettings flow;
 	flow.snapDeadZone  = deadZone;
 	flow.flowBlur      = blur;
 	flow.bidirectional = confidence;
@@ -366,7 +366,7 @@ static int RunSRStill(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar_t
 			{ "exact motion",               0 },
 			{ "raw vectors (1.2)",          1, StillFlow() },
 			{ "snapped only",               1, StillFlow(true, 1.0f, 2.0f, 2, true, true, 0, 0.4f) },
-			{ "filter now",                 1, CDlssStabilizer::ForDlssSR() },
+			{ "filter now",                 1, CMotionEngine::ForDlssSR() },
 		};
 
 		static const Degradation degradations[] = {
@@ -491,15 +491,15 @@ static int RunSRStill(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar_t
 					sr.RequestReset();
 
 					Tex2D_t exactMotion;
-					CDlssStabilizer flow;
+					CMotionEngine flow;
 					if (ok && row.motion == 0) {
 						ok = SUCCEEDED(exactMotion.Create(dev, DXGI_FORMAT_R16G16_FLOAT, iw, ih, Tex2D_DefaultShaderRTarget));
 					}
 					if (ok && row.motion == 1) {
-						ok = SUCCEEDED(flow.Create(dev, ctx, iw, ih, CDlssStabilizer::Motion::OpticalFlow,
+						ok = SUCCEEDED(flow.Create(dev, ctx, iw, ih, CMotionEngine::Motion::OpticalFlow,
 							stabPasses.InputLayout(), stabPasses.VertexShader(), stabPasses.SamplerPoint(), stabPasses.SamplerLinear(),
-							true, row.flow))
-							&& flow.ActiveMotion() == CDlssStabilizer::Motion::OpticalFlow;
+							row.flow))
+							&& flow.ActiveMotion() == CMotionEngine::Motion::OpticalFlow;
 						if (!ok) {
 							Out("  %-26s Optical Flow: %S\n", row.name, flow.GetStatusLine().c_str());
 						}
@@ -1092,13 +1092,13 @@ static int RunSRPort(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs)
 
 		// What the filter runs, and the same with both smoothings on, so that PASS 4 is
 		// checked whatever the settings.
-		CDlssStabilizer::FlowSettings smoothed = CDlssStabilizer::ForDlssSR();
+		CMotionEngine::FlowSettings smoothed = CMotionEngine::ForDlssSR();
 		smoothed.vectorRadius = 2;
 		smoothed.vectorSigma = 0.75f;
 		smoothed.vectorTemporal = 0.5f;
 		smoothed.vectorShift = 0;
 		smoothed.vectorRefine = 0;
-		const CDlssStabilizer::FlowSettings settingsList[] = { CDlssStabilizer::ForDlssSR(), smoothed };
+		const CMotionEngine::FlowSettings settingsList[] = { CMotionEngine::ForDlssSR(), smoothed };
 		int refsDone = 0;
 		for (size_t fi = 0; !rc && fi < files.size() && refsDone < (maxRefs > 0 ? maxRefs : 2); fi++) {
 			UpscaleRef ref;
@@ -1110,16 +1110,16 @@ static int RunSRPort(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs)
 			const int sw = cw / 2, sh = ch / 2;
 			printf("  %S, %dx%d\n", files[fi].substr(files[fi].find_last_of(L'\\') + 1).c_str(), sw, sh);
 
-			for (const CDlssStabilizer::FlowSettings& settings : settingsList) {
+			for (const CMotionEngine::FlowSettings& settings : settingsList) {
 			printf("   settings: radius %d, sigma %.2f, temporal %.2f, shift %d, refine %d\n", settings.vectorRadius, settings.vectorSigma,
 			       settings.vectorTemporal, settings.vectorShift, settings.vectorRefine);
 			Tex2D_t input;
-			CDlssStabilizer flow;
+			CMotionEngine flow;
 			const bool made = SUCCEEDED(input.Create(dev, DXGI_FORMAT_R16G16B16A16_FLOAT, sw, sh, Tex2D_DefaultShaderRTarget))
-				&& SUCCEEDED(flow.Create(dev, ctx, sw, sh, CDlssStabilizer::Motion::OpticalFlow,
+				&& SUCCEEDED(flow.Create(dev, ctx, sw, sh, CMotionEngine::Motion::OpticalFlow,
 					stabPasses.InputLayout(), stabPasses.VertexShader(), stabPasses.SamplerPoint(), stabPasses.SamplerLinear(),
-					true, settings))
-				&& flow.ActiveMotion() == CDlssStabilizer::Motion::OpticalFlow && flow.GetGlobalMotion();
+					settings))
+				&& flow.ActiveMotion() == CMotionEngine::Motion::OpticalFlow && flow.GetGlobalMotion();
 			Check(made, "motion-only Optical Flow with the snapping");
 			if (!made) {
 				continue;
@@ -1499,7 +1499,7 @@ static int RunSRPort(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs)
 						&& (UploadRgba(ctx, target.pTexture, reduced, sw), true);
 				};
 
-				CDlssStabilizer::FlowSettings tested = CDlssStabilizer::ForDlssSR();   // the snapping alone, as first tried
+				CMotionEngine::FlowSettings tested = CMotionEngine::ForDlssSR();   // the snapping alone, as first tried
 				tested.flowBlur = 0;
 				tested.snapLow = 1.0f;
 				tested.snapHigh = 2.0f;
@@ -1507,12 +1507,12 @@ static int RunSRPort(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs)
 				tested.vectorShift = 0;
 				tested.vectorRefine = 0;
 				tested.vectorTemporal = 1.0f;
-				CDlssStabilizer::FlowSettings unsearched = CDlssStabilizer::ForDlssSR();
+				CMotionEngine::FlowSettings unsearched = CMotionEngine::ForDlssSR();
 				unsearched.vectorRefine = 0;
-				const struct { const char* name; CDlssStabilizer::FlowSettings settings; } variants[] = {
+				const struct { const char* name; CMotionEngine::FlowSettings settings; } variants[] = {
 					{ "snapping only", tested },
 					{ "no search", unsearched },
-					{ "filter now", CDlssStabilizer::ForDlssSR() },
+					{ "filter now", CMotionEngine::ForDlssSR() },
 				};
 				const struct { const char* name; float zoom; int dx, dy; } motions[] = {
 					{ "still, grained", 1.0f,  0, 0 },
@@ -1523,11 +1523,11 @@ static int RunSRPort(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs)
 				{
 					// A second of work first, for the GPU's clocks to rise.
 					Tex2D_t first, second;
-					CDlssStabilizer warm;
+					CMotionEngine warm;
 					if (make(1.0f, 0, 0, 0x71E00001u, first) && make(1.0f, 7, 3, 0x71E00002u, second)
-						&& SUCCEEDED(warm.Create(dev, ctx, sw, sh, CDlssStabilizer::Motion::OpticalFlow,
+						&& SUCCEEDED(warm.Create(dev, ctx, sw, sh, CMotionEngine::Motion::OpticalFlow,
 							stabPasses.InputLayout(), stabPasses.VertexShader(), stabPasses.SamplerPoint(), stabPasses.SamplerLinear(),
-							true, CDlssStabilizer::ForDlssSR()))) {
+							CMotionEngine::ForDlssSR()))) {
 						GpuMs(dev, ctx, 200, [&] {
 							warm.PrepareMotion(ctx, first.pShaderResource);
 							warm.PrepareMotion(ctx, second.pShaderResource);
@@ -1542,10 +1542,10 @@ static int RunSRPort(ID3D11Device* dev, ID3D11DeviceContext* ctx, int maxRefs)
 					}
 					printf("    %-16s", m.name);
 					for (const auto& v : variants) {
-						CDlssStabilizer timed;
-						if (FAILED(timed.Create(dev, ctx, sw, sh, CDlssStabilizer::Motion::OpticalFlow,
+						CMotionEngine timed;
+						if (FAILED(timed.Create(dev, ctx, sw, sh, CMotionEngine::Motion::OpticalFlow,
 								stabPasses.InputLayout(), stabPasses.VertexShader(), stabPasses.SamplerPoint(), stabPasses.SamplerLinear(),
-								true, v.settings))) {
+								v.settings))) {
 							printf("  %s: not made", v.name);
 							continue;
 						}

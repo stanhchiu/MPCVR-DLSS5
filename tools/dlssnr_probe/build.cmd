@@ -57,7 +57,7 @@ IF EXIST "%ORT%\build\native\include\onnxruntime_cxx_api.h" (
 cl /nologo /EHsc /std:c++20 /O2 /MT /DNOMINMAX /DWINVER=0x0601 /D_WIN32_WINNT=0x0601 ^
    /DUNICODE /D_UNICODE /I"%SRC%" %ORTFLAGS% harness.cpp %ORTLIB% ^
    "%SRC%\DLSS\DlssNR.cpp" "%SRC%\DLSS\D3D12Interop.cpp" "%SRC%\DLSS\DlssMotionMask.cpp" ^
-   "%SRC%\DLSS\DlssOpticalFlow.cpp" "%SRC%\DLSS\DlssStabilizer.cpp" ^
+   "%SRC%\DLSS\DlssOpticalFlow.cpp" "%SRC%\DLSS\DlssStabilizer.cpp" "%SRC%\DLSS\DlssMotionEngine.cpp" ^
    "%SRC%\DLSS\DlssSR.cpp" "%SRC%\Upscale\MpvShader.cpp" ^
    "%SRC%\DX11Helper.cpp" "%SRC%\Utils\Util.cpp" ^
    "%MH%\hook.c" "%MH%\buffer.c" "%MH%\trampoline.c" "%MH%\hde\hde64.c" ^

@@ -3397,6 +3397,11 @@ void CDX11VideoProcessor::UpdateTexures()
 				hr = m_TexDlssOut.CheckCreate(m_pDevice, DXGI_FORMAT_R16G16B16A16_FLOAT, w, h, Tex2D_DefaultShaderRTargetUAVShared);
 			}
 
+			if (m_TexDlssIn.pTexture != pDlssInBefore || m_TexDlssOut.pTexture != pDlssOutBefore) {
+				m_DlssNR.ReleaseFeature();
+				m_DlssNR.SetGuides(CDlssNR::Guides{});
+			}
+
 			if (FAILED(hr) || !m_TexDlssIn.pTexture || !m_TexDlssOut.pTexture) {
 				DLog(L"CDX11VideoProcessor::UpdateTexures() : failed to create DLSS textures");
 				m_TexDlssIn.Release();
@@ -3452,6 +3457,10 @@ void CDX11VideoProcessor::UpdateTexures()
 			hr = m_TexDlssFGIn.CheckCreate(m_pDevice, DXGI_FORMAT_R16G16B16A16_FLOAT, w, h, Tex2D_DefaultShaderRTargetUAVShared);
 			if (SUCCEEDED(hr)) {
 				hr = m_TexDlssFGInterp.CheckCreate(m_pDevice, DXGI_FORMAT_R16G16B16A16_FLOAT, w, h, Tex2D_DefaultShaderRTargetUAVShared);
+			}
+
+			if (m_TexDlssFGIn.pTexture != pDlssFGInBefore || m_TexDlssFGInterp.pTexture != pDlssFGInterpBefore) {
+				m_DlssFG.ReleaseFeature();
 			}
 
 			if (FAILED(hr) || !m_TexDlssFGIn.pTexture || !m_TexDlssFGInterp.pTexture) {

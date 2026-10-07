@@ -173,22 +173,28 @@ static int RunPipeline(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dls
 			// What each configuration needs, as the renderer builds it.
 			Tex2D_t nrIn, nrOut;
 			CDlssNR::Params params;
-			CDlssStabilizer stabilizer, flow;
+			CDlssStabilizer stabilizer;
+			CMotionEngine motionEngine;
 			bool ok = true;
 			if (config.nr) {
 				ok = MakeSharedPair(dev, nrIn, nrOut, W, H) && dlss.CreateFeature(nrIn.pTexture, nrOut.pTexture, W, H, params)
-					&& SUCCEEDED(stabilizer.Create(dev, ctx, W, H, CDlssStabilizer::Motion::OpticalFlow,
+					&& SUCCEEDED(stabilizer.Create(dev, W, H,
 						stabPasses.InputLayout(), stabPasses.VertexShader(), stabPasses.SamplerPoint(), stabPasses.SamplerLinear()));
+			}
+			if (ok && (config.nr || config.sr)) {
+				ok = SUCCEEDED(motionEngine.Create(dev, ctx, W, H, CMotionEngine::Motion::OpticalFlow,
+					stabPasses.InputLayout(), stabPasses.VertexShader(), stabPasses.SamplerPoint(), stabPasses.SamplerLinear(),
+					config.sr ? CMotionEngine::ForDlssSR() : CMotionEngine::FlowSettings{}));
 			}
 			Tex2D_t plainIn;
 			if (ok && !config.nr) {
 				ok = SUCCEEDED(plainIn.Create(dev, DXGI_FORMAT_R16G16B16A16_FLOAT, W, H, Tex2D_DefaultShaderRTarget));
 			}
-			if (ok && config.sr) {
-				// DLSS SR's own vectors, as DlssSRPass makes them, NR or not.
-				ok = SUCCEEDED(flow.Create(dev, ctx, W, H, CDlssStabilizer::Motion::OpticalFlow,
-					stabPasses.InputLayout(), stabPasses.VertexShader(), stabPasses.SamplerPoint(), stabPasses.SamplerLinear(),
-					true, CDlssStabilizer::ForDlssSR()));
+			if (ok && (config.nr || config.sr)) {
+				motionEngine.Reset();
+			}
+			if (ok && config.nr) {
+				stabilizer.Reset();
 			}
 			if (ok && config.sr) {
 				sr.RequestReset();
@@ -225,8 +231,11 @@ static int RunPipeline(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dls
 
 				// The stabilizer.
 				if (config.nr) {
-					stabilizer.PrepareMotion(ctx, nrIn.pShaderResource);
-					stabilizer.Stabilize(ctx, nrIn.pShaderResource, nrOut.pShaderResource, 1.0f, true);
+					motionEngine.PrepareMotion(ctx, nrIn.pShaderResource);
+					ID3D11ShaderResourceView* pMotionSRV = motionEngine.GetMotionVectors() ? motionEngine.GetMotionVectorsSRV() : motionEngine.GetDetectorAge();
+					ID3D11ShaderResourceView* pConfidenceSRV = motionEngine.GetConfidence();
+					bool bIsOpticalFlow = motionEngine.ActiveMotion() == CMotionEngine::Motion::OpticalFlow;
+					stabilizer.Stabilize(ctx, nrIn.pShaderResource, nrOut.pShaderResource, pMotionSRV, pConfidenceSRV, 1.0f, true, bIsOpticalFlow);
 					pCurrent = stabilizer.GetResult();
 				}
 				const LARGE_INTEGER t2 = Now();
@@ -235,8 +244,10 @@ static int RunPipeline(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dls
 				// DLSS Super Resolution, or the resize shaders.
 				if (config.sr) {
 					ctx->CopyResource(sr.GetInput()->pTexture, pCurrent->pTexture);
-					flow.PrepareMotion(ctx, sr.GetInput()->pShaderResource);
-					ID3D11Texture2D* pMotion = flow.GetMotionVectors();
+					if (!config.nr) {
+						motionEngine.PrepareMotion(ctx, sr.GetInput()->pShaderResource);
+					}
+					ID3D11Texture2D* pMotion = motionEngine.GetMotionVectors();
 					if (!sr.Evaluate(pMotion, 41.7f)) {
 						ok = false;
 						break;

@@ -16,6 +16,7 @@
 // what its picture showed.
 
 #include "DLSS/DlssStabilizer.h"
+#include "DLSS/DlssMotionEngine.h"
 
 namespace temporal {
 
@@ -328,6 +329,7 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 		CDlssMotionMask detector;
 		CDlssOpticalFlow flow;
 		CDlssStabilizer stabilizer;
+		CMotionEngine motionEngine;
 		std::vector<BYTE> shownBytes, redrawBytes;
 		Tex2D_t texIn, texOut, motionTex;
 		Target confTex, history[2], finalTex, prevInput;
@@ -421,20 +423,27 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 					dlss.ReleaseFeature();
 					dlss.SetGuides(CDlssNR::Guides{});   // before the class's vectors go away
 					stabilizer.Release();
+					motionEngine.Release();
 					if (c.renderer) {
-						const CDlssStabilizer::Motion wanted = (c.motion == MotionFlow)
-							? CDlssStabilizer::Motion::OpticalFlow : CDlssStabilizer::Motion::Detector;
-						if (FAILED(stabilizer.Create(dev, ctx, W, H, wanted, passes.InputLayout(), passes.VertexShader(),
+						const CMotionEngine::Motion wanted = (c.motion == MotionFlow)
+							? CMotionEngine::Motion::OpticalFlow : CMotionEngine::Motion::Detector;
+						if (FAILED(motionEngine.Create(dev, ctx, W, H, wanted, passes.InputLayout(), passes.VertexShader(),
 						                             passes.SamplerPoint(), passes.SamplerLinear()))
-						    || stabilizer.ActiveMotion() != wanted) {
-							Out("  %-22s could not start the renderer class: %S\n", c.name, stabilizer.GetStatusLine().c_str());
+						    || motionEngine.ActiveMotion() != wanted) {
+							Out("  %-22s could not start the renderer motion engine: %S\n", c.name, motionEngine.GetStatusLine().c_str());
+							g_failures++;
+							continue;
+						}
+						if (FAILED(stabilizer.Create(dev, W, H, passes.InputLayout(), passes.VertexShader(),
+						                             passes.SamplerPoint(), passes.SamplerLinear()))) {
+							Out("  %-22s could not start the renderer stabilizer\n", c.name);
 							g_failures++;
 							continue;
 						}
 					}
 					CDlssNR::Guides g;
 					if (c.mvecToDlss) {
-						g.pMVec = c.renderer ? stabilizer.GetMotionVectors() : motionTex.pTexture.p;
+						g.pMVec = c.renderer ? motionEngine.GetMotionVectors() : motionTex.pTexture.p;
 					}
 					if (!dlss.SetGuides(g) || !dlss.CreateFeature(texIn.pTexture, texOut.pTexture, W, H, params)) {
 						Out("  %-22s could not set up: %S\n", c.name, dlss.GetStatusLine().c_str());
@@ -444,6 +453,8 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 					dlss.RequestReset();
 					detector.Reset();
 					flow.Reset();
+					motionEngine.Reset();
+					stabilizer.Reset();
 
 					double flick = 0, effect = 0, grain = 0, devAll = 0, devEdge = 0, devBand = 0;
 					int count = 0, flickCount = 0, bandCount = 0, failed = 0, redraws = 0, redrawsDiffering = 0;
@@ -504,7 +515,8 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 						// Motion.
 						bool haveMotion = false;
 						if (c.renderer) {
-							stabilizer.PrepareMotion(ctx, texIn.pShaderResource);
+							motionEngine.PrepareMotion(ctx, texIn.pShaderResource);
+							haveMotion = true;
 						} else if (c.motion == MotionFlow) {
 							passes.FlowFrame(ctx, texIn.pShaderResource, flow.FrameTarget(), w2, h2, 2);
 							haveMotion = flow.Execute();
@@ -552,13 +564,17 @@ static int RunStab(ID3D11Device* dev, ID3D11DeviceContext* ctx, CDlssNR& dlss, c
 
 						ID3D11Texture2D* shown = texOut.pTexture;
 						if (c.stabilize && c.renderer) {
-							stabilizer.Stabilize(ctx, texIn.pShaderResource, texOut.pShaderResource, 1.0f, true);
+							ID3D11ShaderResourceView* pMotionSRV = motionEngine.GetMotionVectors() ? motionEngine.GetMotionVectorsSRV() : motionEngine.GetDetectorAge();
+							ID3D11ShaderResourceView* pConfidenceSRV = motionEngine.GetConfidence();
+							bool bIsOpticalFlow = motionEngine.ActiveMotion() == CMotionEngine::Motion::OpticalFlow;
+
+							stabilizer.Stabilize(ctx, texIn.pShaderResource, texOut.pShaderResource, pMotionSRV, pConfidenceSRV, 1.0f, true, bIsOpticalFlow);
 							shown = stabilizer.GetResult()->pTexture;
 							if (t % 5 == 3) {
 								// A redraw of this picture: the same result, and the history left
 								// where it was -- the pictures after it are measured too.
 								const bool readOk = ReadBytes(ctx, stage, shown, shownBytes);
-								stabilizer.Stabilize(ctx, texIn.pShaderResource, texOut.pShaderResource, 1.0f, false);
+								stabilizer.Stabilize(ctx, texIn.pShaderResource, texOut.pShaderResource, pMotionSRV, pConfidenceSRV, 1.0f, false, bIsOpticalFlow);
 								redraws++;
 								if (!readOk || !ReadBytes(ctx, stage, shown, redrawBytes) || shownBytes != redrawBytes) {
 									redrawsDiffering++;
@@ -787,11 +803,14 @@ static int RunStabBench(ID3D11Device* dev, ID3D11DeviceContext* ctx)
 			continue;
 		}
 
-		for (const CDlssStabilizer::Motion motion : { CDlssStabilizer::Motion::OpticalFlow, CDlssStabilizer::Motion::Detector }) {
+		for (const CMotionEngine::Motion motion : { CMotionEngine::Motion::OpticalFlow, CMotionEngine::Motion::Detector }) {
+			CMotionEngine motionEngine;
 			CDlssStabilizer stabilizer;
-			if (FAILED(stabilizer.Create(dev, ctx, sz.w, sz.h, motion, passes.InputLayout(), passes.VertexShader(),
-			                             passes.SamplerPoint(), passes.SamplerLinear()))) {
-				Out("  %-10s could not create the stabilizer\n", sz.name);
+			if (FAILED(motionEngine.Create(dev, ctx, sz.w, sz.h, motion, passes.InputLayout(), passes.VertexShader(),
+			                             passes.SamplerPoint(), passes.SamplerLinear()))
+			    || FAILED(stabilizer.Create(dev, sz.w, sz.h, passes.InputLayout(), passes.VertexShader(),
+			                               passes.SamplerPoint(), passes.SamplerLinear()))) {
+				Out("  %-10s could not create the motion engine or stabilizer\n", sz.name);
 				g_failures++;
 				continue;
 			}
@@ -804,9 +823,12 @@ static int RunStabBench(ID3D11Device* dev, ID3D11DeviceContext* ctx)
 				ctx->End(tsStart);
 				LARGE_INTEGER c0 = {}, c1 = {};
 				QueryPerformanceCounter(&c0);
-				stabilizer.PrepareMotion(ctx, picture);
+				motionEngine.PrepareMotion(ctx, picture);
 				ctx->End(tsMid);
-				stabilizer.Stabilize(ctx, picture, network, 1.0f, true);
+				ID3D11ShaderResourceView* pMotionSRV = motionEngine.GetMotionVectors() ? motionEngine.GetMotionVectorsSRV() : motionEngine.GetDetectorAge();
+				ID3D11ShaderResourceView* pConfidenceSRV = motionEngine.GetConfidence();
+				bool bIsOpticalFlow = motionEngine.ActiveMotion() == CMotionEngine::Motion::OpticalFlow;
+				stabilizer.Stabilize(ctx, picture, network, pMotionSRV, pConfidenceSRV, 1.0f, true, bIsOpticalFlow);
 				QueryPerformanceCounter(&c1);
 				ctx->End(tsEnd);
 				ctx->End(disjoint);
@@ -839,7 +861,7 @@ static int RunStabBench(ID3D11Device* dev, ID3D11DeviceContext* ctx)
 			summarise(totalGpu, tm, tp);
 			summarise(cpu, cm, cp);
 			Out("  %-10s %-28S %7.3f ms %7.3f ms %7.3f ms %7.3f ms %7.3f ms %7.3f ms   (%zu frames)\n",
-			    sz.name, stabilizer.GetStatusLine().c_str(), mm, sm, tm, tp, cm, cp, cpu.size());
+			    sz.name, motionEngine.GetStatusLine().c_str(), mm, sm, tm, tp, cm, cp, cpu.size());
 		}
 	}
 

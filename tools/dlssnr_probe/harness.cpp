@@ -25,6 +25,8 @@
 #include "Helper.h"        // DX11Helper.h needs the plane-config types
 #include "DX11Helper.h"
 #include "DLSS/DlssNR.h"
+#include "DLSS/DlssMotionEngine.h"
+#include "DLSS/DlssStabilizer.h"
 
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")

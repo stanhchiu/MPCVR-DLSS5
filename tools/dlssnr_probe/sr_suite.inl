@@ -306,15 +306,15 @@ struct SRRow {
 	int  filter = -1;              // a CUpscalePasses method, or -1 for DLSS
 	unsigned preset = NGX_DLSS_PRESET_Default;
 	int  motion = 0;               // DLSS: 0 exact, 1 Optical Flow, 2 none
-	CDlssStabilizer::FlowSettings flow;   // for Optical Flow
+	CMotionEngine::FlowSettings flow;   // for Optical Flow
 };
 
 // Optical Flow as the stabilizer runs it, and finer: at the source size, a vector
 // per pixel or per 2x2 block, the engine's slowest search. The confidence map is
 // not read by DLSS, so no backward flow and no cost.
-CDlssStabilizer::FlowSettings SRFlow(UINT factor, UINT grid, NV_OF_PERF_LEVEL perf)
+CMotionEngine::FlowSettings SRFlow(UINT factor, UINT grid, NV_OF_PERF_LEVEL perf)
 {
-	CDlssStabilizer::FlowSettings flow;
+	CMotionEngine::FlowSettings flow;
 	flow.flowFactor = factor;
 	flow.gridSize = grid;
 	flow.perfLevel = perf;
@@ -383,7 +383,7 @@ static int RunSRQuality(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar
 				}
 			}
 			rows.push_back({ "DLSS SR, exact motion",   -1, NGX_DLSS_PRESET_Default, 0 });
-			rows.push_back({ "DLSS SR, filter's vectors", -1, NGX_DLSS_PRESET_Default, 1, CDlssStabilizer::ForDlssSR() });
+			rows.push_back({ "DLSS SR, filter's vectors", -1, NGX_DLSS_PRESET_Default, 1, CMotionEngine::ForDlssSR() });
 			rows.push_back({ "DLSS SR, raw vectors (1.2)", -1, NGX_DLSS_PRESET_Default, 1, SRFlow(0, 4, NV_OF_PERF_LEVEL_MEDIUM) });
 			rows.push_back({ "DLSS SR, flow as stab.",  -1, NGX_DLSS_PRESET_Default, 1 });
 			rows.push_back({ "DLSS SR, flow 1:1 g4 med", -1, NGX_DLSS_PRESET_Default, 1, SRFlow(1, 4, NV_OF_PERF_LEVEL_MEDIUM) });
@@ -467,7 +467,7 @@ static int RunSRQuality(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar
 
 					Tex2D_t exactMotion;
 					CComPtr<ID3D11RenderTargetView> exactTarget;
-					CDlssStabilizer flow;
+					CMotionEngine flow;
 					if (row.filter < 0) {
 						ok = sr.CreateFeature(sw, sh, cw, ch, row.preset);
 						sr.RequestReset();
@@ -476,10 +476,10 @@ static int RunSRQuality(ID3D11Device* dev, ID3D11DeviceContext* ctx, const wchar
 								&& SUCCEEDED(dev->CreateRenderTargetView(exactMotion.pTexture, nullptr, &exactTarget));
 						}
 						if (ok && row.motion == 1) {
-							ok = SUCCEEDED(flow.Create(dev, ctx, sw, sh, CDlssStabilizer::Motion::OpticalFlow,
+							ok = SUCCEEDED(flow.Create(dev, ctx, sw, sh, CMotionEngine::Motion::OpticalFlow,
 								stabPasses.InputLayout(), stabPasses.VertexShader(), stabPasses.SamplerPoint(), stabPasses.SamplerLinear(),
-								true, row.flow))
-								&& flow.ActiveMotion() == CDlssStabilizer::Motion::OpticalFlow;
+								row.flow))
+								&& flow.ActiveMotion() == CMotionEngine::Motion::OpticalFlow;
 							if (!ok) {
 								Out("  %-26s Optical Flow: %S\n", row.name, flow.GetStatusLine().c_str());
 							}
